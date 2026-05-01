@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #F1F5F9;
+  --color-ink: #0f172a;
+  --color-line: #0f172a;
+  --color-primary-neo: #4f46e5;
+  --color-secondary-neo: #f8fafc;
+  
+  --shadow-neo: 4px 4px 0px 0px rgba(15, 23, 42, 1);
+  --shadow-neo-sm: 2px 2px 0px 0px rgba(15, 23, 42, 1);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: inherit;
+  }
+}
+
+@layer utilities {
+  .neo-card {
+    background-color: white;
+    border-width: 2px;
+    border-color: #0f172a;
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-neo);
+    padding: 1.5rem;
+  }
+
+  .neo-button {
+    border-width: 2px;
+    border-color: #0f172a;
+    font-weight: 700;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+  
+  .neo-button:active {
+    transform: translate(1px, 1px);
+    box-shadow: none;
+  }
+
+  .neo-button-primary {
+    background-color: #4f46e5;
+    color: white;
+    box-shadow: var(--shadow-neo-sm);
+  }
+  
+  .neo-button-primary:hover {
+    background-color: #4338ca;
+  }
+
+  .neo-button-outline {
+    background-color: white;
+    color: #0f172a;
+    box-shadow: var(--shadow-neo-sm);
+  }
+  
+  .neo-button-outline:hover {
+    background-color: #f8fafc;
+  }
+
+  .label-mini {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #94a3b8;
+  }
+}
+
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";

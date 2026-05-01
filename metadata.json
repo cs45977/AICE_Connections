@@ -1,0 +1,6 @@
+{
+  "name": "AICE Connections",
+  "description": "AI-driven sales research and hyper-personalized email generation platform with Google Workspace integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["AI Research", "Email Generation", "Google Workspace Integration"]
+}

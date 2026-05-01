@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Represents a user in the system.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "companyId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "companyId", "role", "createdAt"]
+    },
+    "Company": {
+      "title": "Company Record",
+      "description": "Tenant organization.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "domain", "createdAt"]
+    },
+    "Contact": {
+      "title": "Prospect Contact",
+      "description": "A target contact for sales outreach.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "company": { "type": "string" },
+        "role": { "type": "string" },
+        "linkedin": { "type": "string" },
+        "companyId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "researchSummary": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "companyId", "createdBy", "updatedAt"]
+    },
+    "Outreach": {
+      "title": "Outreach Log",
+      "description": "History of communications with a contact.",
+      "type": "object",
+      "properties": {
+        "subject": { "type": "string" },
+        "emailBody": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent"] },
+        "docUrl": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "contactId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["subject", "emailBody", "status", "createdBy", "contactId", "companyId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles indexed by UID."
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Company tenant records."
+    },
+    "/companies/{companyId}/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Contacts within a company."
+    },
+    "/companies/{companyId}/contacts/{contactId}/outreach/{outreachId}": {
+      "schema": "Outreach",
+      "description": "Outreach logs for a specific contact."
+    }
+  }
+}

@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- 0. Global Safety Net ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSameCompany(companyId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().companyId == companyId;
+    }
+
+    // --- 1. Users ---
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == userId &&
+               data.uid == request.auth.uid &&
+               data.email == request.auth.token.email &&
+               data.companyId is string && data.companyId.size() <= 100 &&
+               data.role in ['user', 'admin'] &&
+               data.createdAt is string; 
+      }
+
+      // Allow reading your own profile OR profile of someone in your same company
+      allow read: if isSignedIn() && (request.auth.uid == userId || (resource != null && isSameCompany(resource.data.companyId)));
+      
+      // Allow creating own profile
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming());
+      
+      // Allow updating own display name
+      allow update: if isSignedIn() && request.auth.uid == userId && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName']) &&
+        incoming().displayName is string && incoming().displayName.size() <= 100;
+    }
+
+    // --- 2. Companies ---
+    match /companies/{companyId} {
+      function isValidCompany(data) {
+        return data.domain is string && data.domain.size() <= 100 &&
+               data.name is string && data.name.size() <= 100 &&
+               data.createdAt is string;
+      }
+
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && isSameCompany(companyId);
+      
+      // Allow creation if user is signed in (first user creates company)
+      allow create: if isSignedIn() && isValidId(companyId) && isValidCompany(incoming());
+      
+      // Only admins can update company settings
+      allow update: if isSameCompany(companyId) && getUserData().role == 'admin' && isValidCompany(incoming());
+    }
+
+    // --- 3. Contacts ---
+    match /companies/{companyId}/contacts/{contactId} {
+      function isValidContact(data) {
+        return data.name is string && data.name.size() <= 100 &&
+               data.email is string && data.email.size() <= 100 &&
+               data.companyId == companyId &&
+               data.createdBy == request.auth.uid &&
+               data.updatedAt is string;
+      }
+
+      allow get: if isSameCompany(companyId) && isValidId(contactId);
+      allow list: if isSameCompany(companyId) && resource.data.companyId == companyId;
+      
+      allow create: if isSameCompany(companyId) && isValidId(contactId) && isValidContact(incoming());
+      
+      allow update: if isSameCompany(companyId) && (
+        // Action: Update details
+        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company']) && isValidContact(incoming())) ||
+        // Action: AI Research Update
+        (incoming().diff(existing()).affectedKeys().hasOnly(['researchSummary', 'updatedAt']) && incoming().updatedAt is string)
+      );
+
+      allow delete: if isSameCompany(companyId) && getUserData().role == 'admin';
+    }
+
+    // --- 4. Outreach Logs ---
+    match /companies/{companyId}/contacts/{contactId}/outreach/{outreachId} {
+      function isValidOutreach(data) {
+        return data.contactId == contactId &&
+               data.companyId == companyId &&
+               data.createdBy == request.auth.uid &&
+               data.emailBody is string && data.emailBody.size() <= 10000 &&
+               data.status in ['draft', 'sent'];
+      }
+
+      allow get: if isSameCompany(companyId);
+      allow list: if isSameCompany(companyId) && resource.data.companyId == companyId;
+      allow create: if isSameCompany(companyId) && isValidId(outreachId) && isValidOutreach(incoming());
+      
+      allow update: if isSameCompany(companyId) && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'docUrl']) &&
+        incoming().status in ['draft', 'sent'];
+    }
+  }
+}
