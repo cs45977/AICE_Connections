@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 export function NewContact() {
-  const { companyId, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -17,19 +17,28 @@ export function NewContact() {
     email: "",
     role: "",
     company: "",
-    linkedin: ""
+    linkedin: "",
+    phone: ""
   });
+
+  const normalizeUrl = (url: string) => {
+    if (!url) return "";
+    const trimmed = url.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      return trimmed;
+    }
+    return `https://${trimmed}`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyId) return;
 
     setLoading(true);
     try {
-      const contactsRef = collection(db, "companies", companyId, "contacts");
+      const contactsRef = collection(db, "contacts");
       const docRef = await addDoc(contactsRef, {
         ...form,
-        companyId,
+        linkedin: normalizeUrl(form.linkedin),
         createdBy: user?.uid,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -37,7 +46,7 @@ export function NewContact() {
       toast.success("Contact added successfully!");
       navigate(`/contact/${docRef.id}`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `companies/${companyId}/contacts`);
+      handleFirestoreError(error, OperationType.CREATE, "contacts");
       toast.error("Failed to add contact.");
     } finally {
       setLoading(false);
@@ -111,15 +120,27 @@ export function NewContact() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <label className="label-mini">Intelligence Link (LinkedIn)</label>
-            <input 
-              type="url" 
-              placeholder="https://linkedin.com/in/prospect-profile" 
-              className="w-full h-14 bg-slate-50 border-2 border-slate-900 rounded-xl px-4 text-sm font-bold focus:outline-none focus:bg-white focus:shadow-neo-sm transition-all"
-              value={form.linkedin} 
-              onChange={e => setForm({ ...form, linkedin: e.target.value })} 
-            />
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <label className="label-mini">Intelligence Link (LinkedIn)</label>
+              <input 
+                type="text" 
+                placeholder="linkedin.com/..." 
+                className="w-full h-14 bg-slate-50 border-2 border-slate-900 rounded-xl px-4 text-sm font-bold focus:outline-none focus:bg-white focus:shadow-neo-sm transition-all"
+                value={form.linkedin} 
+                onChange={e => setForm({ ...form, linkedin: e.target.value })} 
+              />
+            </div>
+            <div className="space-y-3">
+              <label className="label-mini">Direct Voice (Phone)</label>
+              <input 
+                type="tel" 
+                placeholder="+1 (555) 000-0000" 
+                className="w-full h-14 bg-slate-50 border-2 border-slate-900 rounded-xl px-4 text-sm font-bold focus:outline-none focus:bg-white focus:shadow-neo-sm transition-all"
+                value={form.phone} 
+                onChange={e => setForm({ ...form, phone: e.target.value })} 
+              />
+            </div>
           </div>
 
           <div className="pt-8">

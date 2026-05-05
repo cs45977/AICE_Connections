@@ -8,22 +8,10 @@
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
-        "companyId": { "type": "string" },
         "role": { "type": "string", "enum": ["user", "admin"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "email", "companyId", "role", "createdAt"]
-    },
-    "Company": {
-      "title": "Company Record",
-      "description": "Tenant organization.",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "domain": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["name", "domain", "createdAt"]
+      "required": ["uid", "email", "role", "createdAt"]
     },
     "Contact": {
       "title": "Prospect Contact",
@@ -35,12 +23,12 @@
         "company": { "type": "string" },
         "role": { "type": "string" },
         "linkedin": { "type": "string" },
-        "companyId": { "type": "string" },
+        "phone": { "type": "string" },
         "createdBy": { "type": "string" },
         "researchSummary": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "email", "companyId", "createdBy", "updatedAt"]
+      "required": ["name", "email", "createdBy", "updatedAt"]
     },
     "Outreach": {
       "title": "Outreach Log",
@@ -53,10 +41,37 @@
         "docUrl": { "type": "string" },
         "createdBy": { "type": "string" },
         "contactId": { "type": "string" },
-        "companyId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["subject", "emailBody", "status", "createdBy", "contactId", "companyId", "createdAt"]
+      "required": ["subject", "emailBody", "status", "createdBy", "contactId", "createdAt"]
+    },
+    "ProspectDiscovery": {
+      "title": "Prospect Discovery",
+      "description": "Search sessions for finding new prospects.",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "companyUrl": { "type": "string" },
+        "linkedinUrl": { "type": "string" },
+        "criteria": { "type": "string" },
+        "results": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyName", "companyUrl", "createdBy", "createdAt"]
+    },
+    "Prompt": {
+      "title": "System Prompt",
+      "description": "Dynamic prompts and templates used by the AI agents.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "template": { "type": "string" },
+        "description": { "type": "string" },
+        "variables": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "template", "updatedAt"]
     }
   },
   "firestore": {
@@ -64,17 +79,21 @@
       "schema": "User",
       "description": "User profiles indexed by UID."
     },
-    "/companies/{companyId}": {
-      "schema": "Company",
-      "description": "Company tenant records."
-    },
-    "/companies/{companyId}/contacts/{contactId}": {
+    "/contacts/{contactId}": {
       "schema": "Contact",
-      "description": "Contacts within a company."
+      "description": "Global contacts collection."
     },
-    "/companies/{companyId}/contacts/{contactId}/outreach/{outreachId}": {
+    "/contacts/{contactId}/outreach/{outreachId}": {
       "schema": "Outreach",
       "description": "Outreach logs for a specific contact."
+    },
+    "/discoveries/{discoveryId}": {
+      "schema": "ProspectDiscovery",
+      "description": "Prospect discovery sessions."
+    },
+    "/prompts/{promptId}": {
+      "schema": "Prompt",
+      "description": "Global AI prompt templates."
     }
   }
 }

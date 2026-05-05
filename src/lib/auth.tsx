@@ -1,14 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut, User, GoogleAuthProvider } from "firebase/auth";
-import { auth, googleProvider, db } from "./firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { 
+  onAuthStateChanged, 
+  signOut, 
+  User, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail,
+  updateProfile
+} from "firebase/auth";
+import { auth, db } from "./firebase";
+import { doc, getDoc, setDoc, collection, getDocs, limit, query } from "firebase/firestore";
 import { handleFirestoreError, OperationType } from "./firestore-errors";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  companyId: string | null;
-  signIn: () => Promise<void>;
+  role: "user" | "admin" | null;
+  signIn: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -17,13 +27,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [role, setRole] = useState<"user" | "admin" | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
       if (user) {
-        // Fetch or create user record and company
+        setUser(user);
+        // Fetch user record
         const userRef = doc(db, "users", user.uid);
         let userSnap;
         try {
@@ -33,49 +43,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (userSnap && userSnap.exists()) {
-          setCompanyId(userSnap.data().companyId);
-        } else {
-          // Create new user and company based on domain
-          const domain = user.email?.split("@")[1];
-          if (domain) {
-            const companyId = domain.replace(/\./g, "-");
-            const companyRef = doc(db, "companies", companyId);
-            
-            try {
-              const companySnap = await getDoc(companyRef);
-
-              if (!companySnap.exists()) {
-                try {
-                  await setDoc(companyRef, {
-                    domain,
-                    name: domain.split("-")[0],
-                    createdAt: new Date().toISOString(),
-                  });
-                } catch (error) {
-                  handleFirestoreError(error, OperationType.WRITE, "auth_setup_company");
-                }
-              }
-
-              try {
-                await setDoc(userRef, {
-                  uid: user.uid,
-                  email: user.email,
-                  displayName: user.displayName || null,
-                  companyId,
-                  role: "user",
-                  createdAt: new Date().toISOString(),
-                });
-                setCompanyId(companyId);
-              } catch (error) {
-                handleFirestoreError(error, OperationType.WRITE, "auth_setup_user");
-              }
-            } catch (error) {
-              handleFirestoreError(error, OperationType.GET, "auth_setup_get_company");
-            }
+          const data = userSnap.data();
+          setRole(data.role);
+          
+          // Bootstrap admin if needed
+          if (user.email === "cs45977@gmail.com" && data.role !== "admin") {
+            await setDoc(userRef, { ...data, role: "admin" }, { merge: true });
+            setRole("admin");
           }
         }
       } else {
-        setCompanyId(null);
+        setUser(null);
+        setRole(null);
       }
       setLoading(false);
     });
@@ -83,12 +62,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const signIn = async () => {
+  const signIn = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
+  };
+
+  const register = async (email: string, password: string, name: string) => {
+    const { user } = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(user, { displayName: name });
+    
+    // Check user count for "no verification" logic
+    const usersQuery = query(collection(db, "users"), limit(4));
+    const usersSnap = await getDocs(usersQuery);
+    const isEarlyUser = usersSnap.size < 3;
+
     try {
-      await signInWithPopup(auth, googleProvider);
+      const initialRole = email === "cs45977@gmail.com" ? "admin" : "user";
+      
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: email,
+        displayName: name,
+        role: initialRole,
+        createdAt: new Date().toISOString(),
+        emailVerificationExempt: isEarlyUser
+      });
+      
+      setRole(initialRole);
     } catch (error) {
-      console.error("Login failed", error);
+      handleFirestoreError(error, OperationType.WRITE, "auth_setup_user");
     }
+  };
+
+  const resetPassword = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
   };
 
   const logout = async () => {
@@ -96,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, companyId, signIn, logout }}>
+    <AuthContext.Provider value={{ user, loading, role, signIn, register, resetPassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,14 +3,14 @@ import { collection, query, where, onSnapshot, addDoc, orderBy, Timestamp } from
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/auth";
 import { handleFirestoreError, OperationType } from "../lib/firestore-errors";
-import { Plus, Search, Mail, ExternalLink, Calendar, Sparkles, Upload, Download } from "lucide-react";
+import { Plus, Search, Mail, ExternalLink, Calendar, Sparkles, Upload, Download, Linkedin, Phone } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import Papa from "papaparse";
 import { toast } from "sonner";
 
 export function Dashboard() {
-  const { companyId, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [contacts, setContacts] = useState<any[]>([]);
   const [recentOutreach, setRecentOutreach] = useState<any[]>([]);
@@ -19,7 +19,7 @@ export function Dashboard() {
   const [uploading, setUploading] = useState(false);
 
   const handleDownloadTemplate = () => {
-    const csvContent = "Name,Email,Job Title,Company,LinkedIn URL\nJohn Doe,john@example.com,CTO,Acme Corp,https://linkedin.com/in/johndoe";
+    const csvContent = "Name,Email,Job Title,Company,LinkedIn URL,Phone\nJohn Doe,john@example.com,CTO,Acme Corp,https://linkedin.com/in/johndoe,+15550000000";
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -32,7 +32,7 @@ export function Dashboard() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !companyId || !user) return;
+    if (!file || !user) return;
 
     setUploading(true);
     Papa.parse(file, {
@@ -48,6 +48,7 @@ export function Dashboard() {
           const role = row["Job Title"] || row["role"] || row["title"] || "";
           const company = row["Company"] || row["company"] || "";
           const linkedin = row["LinkedIn URL"] || row["linkedin"] || "";
+          const phone = row["Phone"] || row["phone"] || "";
 
           if (!name || !email) {
             skipCount++;
@@ -55,13 +56,13 @@ export function Dashboard() {
           }
 
           try {
-            await addDoc(collection(db, "companies", companyId, "contacts"), {
+            await addDoc(collection(db, "contacts"), {
               name,
               email,
               role,
               company,
               linkedin,
-              companyId,
+              phone,
               createdBy: user.uid,
               updatedAt: new Date().toISOString(),
             });
@@ -69,7 +70,7 @@ export function Dashboard() {
           } catch (error) {
             console.error("Error adding contact", error);
             try {
-              handleFirestoreError(error, OperationType.CREATE, `companies/${companyId}/contacts`);
+              handleFirestoreError(error, OperationType.CREATE, "contacts");
             } catch (err) {
                // handleFirestoreError throws, so we catch its error so the loop doesn't break
             }
@@ -95,22 +96,19 @@ export function Dashboard() {
   };
 
   useEffect(() => {
-    if (!companyId) return;
-
     const contactsQuery = query(
-      collection(db, "companies", companyId, "contacts"),
-      where("companyId", "==", companyId),
+      collection(db, "contacts"),
       orderBy("updatedAt", "desc")
     );
 
     const unsub = onSnapshot(contactsQuery, (snap) => {
       setContacts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `companies/${companyId}/contacts`);
+      handleFirestoreError(error, OperationType.LIST, "contacts");
     });
 
     return () => unsub();
-  }, [companyId]);
+  }, []);
 
   const filteredContacts = contacts.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -194,7 +192,35 @@ export function Dashboard() {
                 >
                   <div className="flex flex-col">
                     <span className="font-black text-sm uppercase tracking-tight">{contact.name}</span>
-                    <span className="text-[10px] font-bold text-slate-400 font-mono italic">{contact.email}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <a 
+                        href={`mailto:${contact.email}`} 
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] font-bold text-slate-400 font-mono italic hover:text-indigo-600 transition-colors"
+                      >
+                        {contact.email}
+                      </a>
+                      {contact.linkedin && (
+                        <a 
+                          href={contact.linkedin} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 hover:bg-slate-100 rounded transition-colors text-[#0A66C2]"
+                        >
+                          <Linkedin className="w-3 h-3" />
+                        </a>
+                      )}
+                      {contact.phone && (
+                        <a 
+                          href={`tel:${contact.phone}`} 
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-900"
+                        >
+                          <Phone className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-bold">{contact.company}</span>

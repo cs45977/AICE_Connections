@@ -16,63 +16,85 @@ import {
   History,
   FileText,
   Loader2,
-  Plus
+  Plus,
+  Linkedin,
+  Phone
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
 
 export function ContactDetail() {
   const { id } = useParams();
-  const { companyId, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   
   const [contact, setContact] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    role: "",
+    company: "",
+    linkedin: "",
+    phone: ""
+  });
   const [outreach, setOutreach] = useState<any[]>([]);
   const [researchLoading, setResearchLoading] = useState(false);
   const [genLoading, setGenLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [isResearchExpanded, setIsResearchExpanded] = useState(false);
   
   const [campaignSubject, setCampaignSubject] = useState("");
   const [generatedDraft, setGeneratedDraft] = useState("");
 
   useEffect(() => {
-    if (!companyId || !id) return;
+    if (!id) return;
 
-    const contactRef = doc(db, "companies", companyId, "contacts", id);
+    const contactRef = doc(db, "contacts", id);
     const unsubContact = onSnapshot(contactRef, (snap) => {
       if (snap.exists()) {
-        setContact({ id: snap.id, ...snap.data() });
+        const data = snap.id ? { id: snap.id, ...snap.data() } : snap.data();
+        setContact(data);
+        setEditForm({
+          name: data.name || "",
+          email: data.email || "",
+          role: data.role || "",
+          company: data.company || "",
+          linkedin: data.linkedin || "",
+          phone: data.phone || ""
+        });
       } else {
         navigate("/");
       }
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `companies/${companyId}/contacts/${id}`);
+      handleFirestoreError(error, OperationType.GET, `contacts/${id}`);
     });
 
     const outreachQuery = query(
-      collection(db, "companies", companyId, "contacts", id, "outreach"),
-      where("companyId", "==", companyId),
+      collection(db, "contacts", id, "outreach"),
       orderBy("createdAt", "desc")
     );
     const unsubOutreach = onSnapshot(outreachQuery, (snap) => {
       setOutreach(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `companies/${companyId}/contacts/${id}/outreach`);
+      handleFirestoreError(error, OperationType.LIST, `contacts/${id}/outreach`);
     });
 
     return () => {
       unsubContact();
       unsubOutreach();
     };
-  }, [companyId, id]);
+  }, [id]);
 
   const handleResearch = async () => {
     if (!contact) return;
     setResearchLoading(true);
     try {
       const summary = await researchContact(contact);
-      const contactRef = doc(db, "companies", companyId!, "contacts", id!);
+      const contactRef = doc(db, "contacts", id!);
       await updateDoc(contactRef, {
         researchSummary: summary,
         updatedAt: new Date().toISOString()
@@ -124,7 +146,7 @@ export function ContactDetail() {
       const data = await response.json();
       if (data.success) {
         // Save to outreach history
-        const outreachRef = collection(db, "companies", companyId!, "contacts", id!, "outreach");
+        const outreachRef = collection(db, "contacts", id!, "outreach");
         await addDoc(outreachRef, {
           contactId: id,
           subject: campaignSubject,
@@ -132,7 +154,6 @@ export function ContactDetail() {
           status: "draft",
           docUrl: data.url,
           createdBy: user?.uid,
-          companyId: companyId,
           createdAt: new Date().toISOString()
         });
 
@@ -149,209 +170,399 @@ export function ContactDetail() {
     }
   };
 
+  const normalizeUrl = (url: string) => {
+    if (!url) return "";
+    const trimmed = url.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      return trimmed;
+    }
+    return `https://${trimmed}`;
+  };
+
+  const handleUpdateContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+    setSaveLoading(true);
+    try {
+      await updateDoc(doc(db, "contacts", id), {
+        ...editForm,
+        linkedin: normalizeUrl(editForm.linkedin),
+        updatedAt: new Date().toISOString()
+      });
+      setIsEditing(false);
+      toast.success("Contact updated successfully");
+    } catch (error) {
+      toast.error("Failed to update contact");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   if (!contact) return <div className="p-8 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto opacity-20" /></div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10">
-      <div className="mb-8">
+    <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="mb-4">
         <Link to="/" className="flex items-center gap-2 group text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-colors">
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
           Return to Pipeline
         </Link>
       </div>
 
-      <div className="grid grid-cols-12 grid-rows-6 gap-6 min-h-[800px]">
+      <div className="flex flex-col gap-3">
         {/* Profile / Header Area */}
-        <header className="col-span-12 row-span-1 neo-card flex items-center justify-between !py-4">
-          <div className="flex items-center gap-8">
-            <div className="flex flex-col">
-              <span className="label-mini mb-1">Active Prospect</span>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-black uppercase tracking-tighter">{contact.name}</h1>
-                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-black rounded border border-indigo-200 uppercase">
-                  {contact.role || 'Prospect'}
-                </span>
-              </div>
-            </div>
-            <div className="h-10 w-[2px] bg-slate-100"></div>
-            <div className="flex flex-col">
-              <span className="label-mini mb-1">Target Account</span>
-              <p className="font-black text-lg uppercase tracking-tight">{contact.company}</p>
-            </div>
-          </div>
-          
-          <div className="flex gap-3">
-            <button 
-              onClick={handleResearch} 
-              disabled={researchLoading}
-              className="neo-button-outline text-xs uppercase tracking-widest flex items-center gap-2"
-            >
-              {researchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Refresh Research
-            </button>
-            <button className="neo-button-primary text-xs uppercase tracking-widest flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              New outreach
-            </button>
-          </div>
-        </header>
-
-        {/* Research Agent Findings */}
-        <section className="col-span-4 row-span-5 neo-card flex flex-col relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 -translate-y-16 translate-x-16 rounded-full blur-2xl"></div>
-          
-          <div className="flex justify-between items-center mb-6 relative z-10">
-            <h2 className="font-black text-lg uppercase tracking-tight">Research Findings</h2>
-            <div className={`w-2 h-2 rounded-full ${contact.researchSummary ? 'bg-green-500 animate-pulse' : 'bg-slate-200'}`}></div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-2 space-y-4 relative z-10 custom-scrollbar">
-            {contact.researchSummary ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-indigo-50 border-2 border-indigo-100 rounded-xl">
-                  <p className="label-mini !text-indigo-700 mb-2">Automated Synthesis</p>
-                  <div className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap font-medium">
-                    {contact.researchSummary}
+        <header className="neo-card border-b-4 border-slate-900 shadow-none overflow-hidden !p-0">
+          <AnimatePresence mode="wait">
+            {isEditing ? (
+              <motion.form 
+                key="edit-form"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                onSubmit={handleUpdateContact}
+                className="p-2 bg-indigo-50 flex flex-wrap items-end gap-2"
+              >
+                <div className="flex-1 min-w-[150px]">
+                  <label className="text-[9px] font-black uppercase text-indigo-600 block mb-0.5 ml-1">Name *</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.name}
+                    onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="flex-1 min-w-[150px]">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5 ml-1">Email</label>
+                  <input 
+                    type="email" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.email}
+                    onChange={e => setEditForm({ ...editForm, email: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5 ml-1">Role</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.role}
+                    onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5 ml-1">Company</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.company}
+                    onChange={e => setEditForm({ ...editForm, company: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5 ml-1">LinkedIn</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.linkedin}
+                    onChange={e => setEditForm({ ...editForm, linkedin: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5 ml-1">Phone</label>
+                  <input 
+                    type="tel" 
+                    className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-bold focus:border-indigo-500 outline-none"
+                    value={editForm.phone}
+                    onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 pb-0.5">
+                  <button 
+                    type="button"
+                    onClick={() => setIsEditing(false)}
+                    className="h-8 px-3 bg-white border border-slate-300 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={saveLoading}
+                    className="h-8 px-3 bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center gap-2"
+                  >
+                    {saveLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                  </button>
+                </div>
+              </motion.form>
+            ) : (
+              <motion.div 
+                key="header-view"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center justify-between !py-2 !px-6 w-full"
+              >
+                <div className="flex items-center gap-6">
+                  <div className="flex flex-col">
+                    <span className="label-mini !text-[8px] mb-0.5">Active Prospect</span>
+                    <div className="flex items-center gap-4">
+                      <h1 className="text-2xl font-black uppercase tracking-tighter">{contact.name}</h1>
+                      <div className="flex items-center gap-2">
+                        <a 
+                          href={`mailto:${contact.email}`}
+                          className="p-1.5 bg-slate-100 hover:bg-indigo-600 hover:text-white rounded transition-all text-slate-500"
+                          title={contact.email}
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </a>
+                        {contact.linkedin && (
+                          <a 
+                            href={contact.linkedin}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 bg-slate-100 hover:bg-[#0A66C2] hover:text-white rounded transition-all text-[#0A66C2]"
+                            title="LinkedIn Profile"
+                          >
+                            <Linkedin className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        {contact.phone && (
+                          <a 
+                            href={`tel:${contact.phone}`}
+                            className="p-1.5 bg-slate-100 hover:bg-slate-900 hover:text-white rounded transition-all text-slate-500"
+                            title={contact.phone}
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-8 w-[2px] bg-slate-100"></div>
+                  <div className="flex flex-col">
+                    <span className="label-mini !text-[8px] mb-0.5">Account & Role</span>
+                    <p className="font-black text-sm uppercase tracking-tight text-slate-600">
+                      {contact.company} <span className="text-slate-300 mx-1">•</span> <span className="text-indigo-600">{contact.role || 'Prospect'}</span>
+                    </p>
                   </div>
                 </div>
                 
-                <div className="p-4 border-2 border-slate-100 rounded-xl italic text-xs text-slate-400">
-                  Data points captured from public social footprints and professional indices.
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setIsEditing(true)}
+                    className="h-9 px-3 bg-white border-2 border-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest hover:border-indigo-400 text-slate-600 hover:text-indigo-600 transition-all flex items-center gap-2"
+                  >
+                    Edit Profile
+                  </button>
+                  <button 
+                    onClick={handleResearch} 
+                    disabled={researchLoading}
+                    className="h-9 px-3 bg-white border-2 border-slate-200 rounded-lg text-[10px] uppercase tracking-widest flex items-center gap-2 hover:border-indigo-400 hover:text-indigo-600 transition-all font-black"
+                  >
+                    {researchLoading ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Search className="w-4 h-4" />}
+                    Refresh
+                  </button>
+                  <button className="h-9 px-4 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neo-sm hover:translate-y-[-2px] active:translate-y-0 transition-all">
+                    <Plus className="w-4 h-4" />
+                    New outreach
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </header>
+
+        {/* Research Agent Findings - Full Width & Expandable */}
+        <section className="neo-card relative overflow-hidden bg-white">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 -translate-y-16 translate-x-16 rounded-full blur-2xl"></div>
+          
+          <div className="flex justify-between items-center mb-4 relative z-10">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-600" />
+              <h2 className="font-black text-lg uppercase tracking-tight">Technical Research Agent Findings</h2>
+            </div>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border border-slate-100 ${contact.researchSummary ? 'bg-green-50' : 'bg-slate-50'}`}>
+              <div className={`w-2 h-2 rounded-full ${contact.researchSummary ? 'bg-green-500 animate-pulse' : 'bg-slate-200'}`}></div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                {contact.researchSummary ? "Insights Ready" : "Unsynced"}
+              </span>
+            </div>
+          </div>
+
+          <div className="relative z-10">
+            {contact.researchSummary ? (
+              <div className="space-y-4">
+                <div className={`p-5 bg-indigo-50/30 border border-indigo-100 rounded-2xl transition-all duration-500 ${isResearchExpanded ? 'max-h-[2000px]' : 'max-h-[140px]'} overflow-hidden relative`}>
+                  <div className="markdown-body text-sm leading-relaxed text-slate-700 font-medium">
+                    <ReactMarkdown>{contact.researchSummary}</ReactMarkdown>
+                  </div>
+                  
+                  {!isResearchExpanded && (
+                    <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-indigo-50/80 to-transparent flex items-end justify-center pb-2">
+                       <button 
+                        onClick={() => setIsResearchExpanded(true)}
+                        className="px-4 py-1.5 bg-white border-2 border-slate-900 rounded-lg text-[9px] font-black uppercase tracking-widest shadow-neo-sm hover:translate-y-[-1px] transition-all"
+                      >
+                        Read Full Research Findings
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {isResearchExpanded && (
+                  <div className="flex justify-center">
+                    <button 
+                      onClick={() => setIsResearchExpanded(false)}
+                      className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 underline underline-offset-4"
+                    >
+                      Collapse Insights
+                    </button>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 px-4 py-2 border border-slate-100 rounded-xl bg-slate-50/50">
+                  <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Source Context:</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight italic">
+                    Public search indices, indexed enterprise data, and social professional signatures.
+                  </span>
                 </div>
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center py-20 px-6">
-                <div className="w-16 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-full flex items-center justify-center mb-4">
-                  <Search className="w-6 h-6 text-slate-300" />
+              <div className="flex flex-col items-center justify-center text-center py-10 px-6 border-2 border-dashed border-slate-100 rounded-2xl bg-slate-50/30">
+                <div className="w-12 h-12 bg-white border border-slate-200 rounded-full flex items-center justify-center mb-3">
+                  <Search className="w-5 h-5 text-slate-300" />
                 </div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose">
-                  Research queue empty.<br />Initialize agent to continue.
+                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                  Agent idle. Use 'Refresh' above to synthesize findings.
                 </p>
               </div>
             )}
           </div>
         </section>
 
-        {/* AI Generation Box */}
-        <section className="col-span-8 row-span-4 neo-card !p-0 flex flex-col overflow-hidden">
-          <div className="p-4 border-b-2 border-slate-900 bg-slate-50 flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1 rounded shadow-neo-sm">AI Engine</span>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter italic">Persona: Google Customer Engineer</span>
-            </div>
-            {genLoading && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}
-          </div>
-
-          <div className="p-8 flex-1 flex flex-col gap-6">
-            <div className="space-y-3">
-              <label className="label-mini flex items-center gap-2">
-                Outreach Goal
-              </label>
-              <div className="relative group">
-                <input 
-                  type="text" 
-                  placeholder="e.g. Schedule technical overview for their Q4 infrastructure roadmap"
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-900 rounded-xl text-sm font-bold focus:outline-none transition-all focus:bg-white focus:shadow-neo-sm"
-                  value={campaignSubject}
-                  onChange={(e) => setCampaignSubject(e.target.value)}
-                />
-                <button 
-                  onClick={handleGenerate}
-                  disabled={genLoading || !contact.researchSummary}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                    contact.researchSummary 
-                    ? 'bg-slate-900 text-white hover:bg-black' 
-                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  }`}
-                >
-                  Draft Email
-                </button>
+        <div className="grid grid-cols-12 gap-3">
+          {/* AI Generation Box */}
+          <section className="col-span-12 lg:col-span-8 neo-card !p-0 flex flex-col overflow-hidden">
+            <div className="p-4 border-b-2 border-slate-900 bg-slate-50 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1 rounded shadow-neo-sm">AI Engine</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter italic">Persona: Google Customer Engineer</span>
               </div>
+              {genLoading && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}
             </div>
 
-            <div className="flex-1 bg-slate-50 border-2 border-slate-200 rounded-xl p-6 relative group overflow-hidden">
-              <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <FileText className="w-5 h-5 text-slate-300" />
+            <div className="p-8 flex-1 flex flex-col gap-6">
+              <div className="space-y-3">
+                <label className="label-mini flex items-center gap-2">
+                  Outreach Goal / Theme
+                </label>
+                <div className="relative group">
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Schedule technical overview for their Q4 infrastructure roadmap"
+                    className="w-full p-4 bg-slate-50 border-2 border-slate-900 rounded-xl text-sm font-bold focus:outline-none transition-all focus:bg-white focus:shadow-neo-sm"
+                    value={campaignSubject}
+                    onChange={(e) => setCampaignSubject(e.target.value)}
+                  />
+                  <button 
+                    onClick={handleGenerate}
+                    disabled={genLoading || !contact.researchSummary}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      contact.researchSummary 
+                      ? 'bg-slate-900 text-white hover:bg-black' 
+                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Draft Email
+                  </button>
+                </div>
               </div>
-              
-              {generatedDraft ? (
-                <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
-                  <div className="font-mono text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap">
-                    {generatedDraft}
+
+              <div className="flex-1 bg-slate-50 border-2 border-slate-200 rounded-xl p-6 relative group overflow-hidden min-h-[300px]">
+                <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <FileText className="w-5 h-5 text-slate-300" />
+                </div>
+                
+                {generatedDraft ? (
+                  <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="font-mono text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                      {generatedDraft}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-sm py-20">
-                  <Mail className="w-8 h-8 mb-2" />
-                  Your generated message will appear here
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="p-6 border-t-2 border-slate-900 bg-slate-50 flex justify-end gap-3">
-            <button 
-              className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest disabled:opacity-50"
-              onClick={() => setGeneratedDraft("")}
-              disabled={!generatedDraft}
-            >
-              Clear Draft
-            </button>
-            <button 
-              className="neo-button-primary !px-6 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:shadow-none"
-              onClick={handleExport}
-              disabled={!generatedDraft || exportLoading}
-            >
-              {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              Push to Workspace
-            </button>
-          </div>
-        </section>
-
-        {/* History Log */}
-        <section className="col-span-5 row-span-2 neo-card relative overflow-hidden group">
-          <div className="absolute bottom-0 right-0 w-24 h-24 bg-slate-50 -translate-x-4 translate-y-4 rounded-full border-2 border-slate-100 group-hover:scale-110 transition-transform"></div>
-          <h2 className="label-mini mb-6 flex items-center gap-2">
-            <History className="w-4 h-4" />
-            Outreach History
-          </h2>
-          <div className="space-y-4 relative z-10 overflow-y-auto max-h-[120px] pr-2 custom-scrollbar">
-            {outreach.map((log) => (
-              <div key={log.id} className="flex gap-4 items-start pb-4 border-b border-slate-100 last:border-0 last:pb-0">
-                <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-black uppercase tracking-tight truncate">{log.subject}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(log.createdAt).toLocaleDateString()}</span>
-                    <span className="text-[9px] font-bold text-indigo-600 uppercase">Google Document</span>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-sm py-20">
+                    <Mail className="w-8 h-8 mb-2" />
+                    Your generated message will appear here
                   </div>
-                </div>
-                <div className="ml-auto">
-                    {log.docUrl && (
-                      <a href={log.docUrl} target="_blank" rel="noopener" className="p-2 hover:bg-slate-100 rounded transition-colors group/link">
-                        <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover/link:text-slate-900" />
-                      </a>
-                    )}
-                </div>
+                )}
               </div>
-            ))}
-            {outreach.length === 0 && (
-              <p className="text-xs italic text-slate-400 py-4">No communications logged yet.</p>
-            )}
-          </div>
-        </section>
+            </div>
 
-        {/* Stats / Branding Section */}
-        <section className="col-span-3 row-span-2 neo-card bg-slate-900 text-white flex flex-col justify-center items-center text-center hover:bg-indigo-600 transition-colors cursor-default">
-           <div className="text-5xl font-black mb-1">92%</div>
-           <p className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-60">Personalization Strength</p>
-           <div className="mt-8 flex items-center gap-1.5 px-3 py-1 bg-white/10 rounded-full border border-white/10">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
-              <span className="text-[8px] font-black uppercase">Live Agent Active</span>
-           </div>
-        </section>
+            <div className="p-6 border-t-2 border-slate-900 bg-slate-50 flex justify-end gap-3">
+              <button 
+                className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest disabled:opacity-50"
+                onClick={() => setGeneratedDraft("")}
+                disabled={!generatedDraft}
+              >
+                Clear Draft
+              </button>
+              <button 
+                className="neo-button-primary !px-6 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:shadow-none"
+                onClick={handleExport}
+                disabled={!generatedDraft || exportLoading}
+              >
+                {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Push to Workspace
+              </button>
+            </div>
+          </section>
+
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-3">
+            {/* History Log */}
+            <section className="neo-card relative overflow-hidden group flex-1">
+              <div className="absolute bottom-0 right-0 w-24 h-24 bg-slate-50/50 -translate-x-4 translate-y-4 rounded-full border border-slate-100 group-hover:scale-110 transition-transform"></div>
+              <h2 className="label-mini mb-6 flex items-center gap-2">
+                <History className="w-4 h-4" />
+                Outreach History
+              </h2>
+              <div className="space-y-4 relative z-10 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                {outreach.map((log) => (
+                  <div key={log.id} className="flex gap-4 items-start pb-4 border-b border-slate-100 last:border-0 last:pb-0">
+                    <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center flex-shrink-0">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-xs font-black uppercase tracking-tight truncate">{log.subject}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(log.createdAt).toLocaleDateString()}</span>
+                        <span className="text-[9px] font-bold text-indigo-600 uppercase">Google Document</span>
+                      </div>
+                    </div>
+                    <div className="ml-auto">
+                        {log.docUrl && (
+                          <a href={log.docUrl} target="_blank" rel="noopener" className="p-2 hover:bg-slate-100 rounded transition-colors group/link">
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover/link:text-slate-900" />
+                          </a>
+                        )}
+                    </div>
+                  </div>
+                ))}
+                {outreach.length === 0 && (
+                  <p className="text-xs italic text-slate-400 py-4">No communications logged yet.</p>
+                )}
+              </div>
+            </section>
+
+            {/* Stats / Branding Section */}
+            <section className="neo-card bg-slate-900 text-white flex flex-col justify-center items-center text-center hover:bg-indigo-600 transition-colors cursor-default p-6 h-[180px]">
+              <div className="text-5xl font-black mb-1">92%</div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-60">Personalization Strength</p>
+              <div className="mt-6 flex items-center gap-1.5 px-3 py-1 bg-white/10 rounded-full border border-white/10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
+                  <span className="text-[8px] font-black uppercase">Live Agent Active</span>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
   );

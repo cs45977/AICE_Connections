@@ -1,14 +1,36 @@
+import React from "react";
 import { useAuth } from "../lib/auth";
-import { LogOut, User as UserIcon, LayoutDashboard, Users } from "lucide-react";
+import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export function Navbar() {
-  const { user, logout } = useAuth();
+  const { user, role, logout } = useAuth();
+  const [configStatus, setConfigStatus] = React.useState<{ geminiKey: boolean, env: string } | null>(null);
+  const buildVersion = "v1.0.43";
+
+  React.useEffect(() => {
+    if (role === "admin") {
+      fetch("/api/config/status")
+        .then(res => res.json())
+        .then(data => setConfigStatus(data))
+        .catch(() => {});
+    }
+  }, [role]);
 
   if (!user) return null;
 
   return (
     <nav className="bg-white border-b-2 border-slate-900 sticky top-0 z-50">
+      {role === "admin" && (
+        <div className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-[0.3em] py-1 px-6 text-center flex items-center justify-center gap-4">
+          <span>Internal Build {buildVersion} • Administrative Console ({configStatus?.env || "..."})</span>
+          {configStatus && !configStatus.geminiKey && (
+            <span className="bg-red-500 px-2 py-0.5 rounded animate-pulse">
+              ⚠️ Gemini Key Missing in {configStatus.env === 'development' ? 'Workspace' : 'Deployment'}
+            </span>
+          )}
+        </div>
+      )}
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2 group">
@@ -18,7 +40,16 @@ export function Navbar() {
           
           <div className="hidden md:flex items-center gap-2">
             <Link to="/" className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">Prospects</Link>
+            <Link to="/find-prospects" className="px-3 py-1.5 rounded-lg text-sm font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center gap-2">
+               <Search className="w-4 h-4" /> Discovery
+            </Link>
             <Link to="/contacts" className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">Insights</Link>
+            {role === "admin" && (
+              <Link to="/admin" className="px-3 py-1.5 rounded-lg text-sm font-black text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Admin
+              </Link>
+            )}
           </div>
         </div>
 
