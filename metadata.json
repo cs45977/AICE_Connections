@@ -1,6 +1,6 @@
 {
   "name": "AI-CE",
-  "description": "AI-driven sales research and hyper-personalized email generation platform with Google Workspace integration.",
+  "description": "AI-driven sales intelligence platform with persona-based prospecting, automated research summaries, high-fidelity email drafting, real-time pipeline analytics, and technical system documentation.",
   "requestFramePermissions": [],
   "majorCapabilities": ["AI Research", "Email Generation", "Google Workspace Integration"]
 }

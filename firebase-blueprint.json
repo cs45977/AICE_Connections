@@ -25,6 +25,7 @@
         "linkedin": { "type": "string" },
         "phone": { "type": "string" },
         "createdBy": { "type": "string" },
+        "discoveryPersonaId": { "type": "string" },
         "researchSummary": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -37,13 +38,18 @@
       "properties": {
         "subject": { "type": "string" },
         "emailBody": { "type": "string" },
-        "status": { "type": "string", "enum": ["draft", "sent"] },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent", "manual", "wont-send"] },
         "docUrl": { "type": "string" },
+        "notes": { "type": "string" },
+        "hasResponse": { "type": "boolean" },
         "createdBy": { "type": "string" },
         "contactId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["subject", "emailBody", "status", "createdBy", "contactId", "createdAt"]
+      "required": ["subject", "status", "createdBy", "contactId", "createdAt"]
     },
     "ProspectDiscovery": {
       "title": "Prospect Discovery",
@@ -55,6 +61,7 @@
         "linkedinUrl": { "type": "string" },
         "criteria": { "type": "string" },
         "results": { "type": "string" },
+        "personaId": { "type": "string" },
         "createdBy": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -104,9 +111,21 @@
           }
         },
         "isDefault": { "type": "boolean" },
+        "customDiscoveryRequirements": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "createdAt"]
+    },
+    "GlobalSettings": {
+      "title": "Global Settings",
+      "description": "System-wide configuration settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "defaultDiscoveryRequirements": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "defaultDiscoveryRequirements"]
     }
   },
   "firestore": {
@@ -137,6 +156,10 @@
     "/prompts/{promptId}": {
       "schema": "Prompt",
       "description": "Global AI prompt templates."
+    },
+    "/settings/{settingId}": {
+      "schema": "GlobalSettings",
+      "description": "Global system configuration"
     }
   }
 }

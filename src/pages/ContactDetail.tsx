@@ -35,7 +35,9 @@ import {
   StickyNote,
   MessageSquare,
   Terminal,
-  Trash2
+  Trash2,
+  Copy,
+  X
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
@@ -77,6 +79,41 @@ export function ContactDetail() {
   const [goalsLoading, setGoalsLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState("research");
+  
+  const [isLogging, setIsLogging] = useState(false);
+  const [editingLog, setEditingLog] = useState<any>(null);
+  const [logForm, setLogForm] = useState({
+    subject: "",
+    type: "Email",
+    description: "",
+    notes: "",
+    hasResponse: false
+  });
+  const [logLoading, setLogLoading] = useState(false);
+  const [isLogEmailLoading, setIsLogEmailLoading] = useState(false);
+  const [isSaveDraftLoading, setIsSaveDraftLoading] = useState(false);
+
+  const getCatchyPhrase = () => {
+    if (genLoading) return "CONSTRUCTING MASTERPIECE...";
+    if (researchLoading) return "ANALYZING TARGET SIGNATURE...";
+    if (exportLoading) return "TELEPORTING TO WORKSPACE...";
+    
+    if (generatedDraft) return "MIC DROP MOMENT READY.";
+    if (contact?.researchSummary) return "INTEL ACQUIRED. PLAN YOUR ATTACK.";
+    
+    return "THE HUNT IS ON. START RESEARCH.";
+  };
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data?.provider === 'google') {
+        toast.success("Workspace connected! You can now push to Workspace.");
+        handleExport(); // Retry export
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [generatedDraft, contact, campaignSubject]);
 
   useEffect(() => {
     if (!id) return;
@@ -206,9 +243,16 @@ export function ContactDetail() {
       const draft = await generateEmail(campaignSubject, contact.researchSummary || "No research findings yet.", contact, promptOverride, personaContext);
       setGeneratedDraft(draft);
       toast.success("Email draft generated!");
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error("Failed to generate email.");
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("API key")) {
+        toast.error("Invalid API Key. Please check your settings.");
+      } else if (msg.includes("quota") || msg.includes("429")) {
+        toast.error("Rate limit exceeded. Please try again in 1 minute.");
+      } else {
+        toast.error("Failed to generate email. Check console for details.");
+      }
     } finally {
       setGenLoading(false);
     }
@@ -241,24 +285,48 @@ export function ContactDetail() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  const handleCopy = () => {
+    if (!generatedDraft) return;
+    navigator.clipboard.writeText(generatedDraft);
+    toast.success("Copied to clipboard!");
+  };
+
   const handleExport = async () => {
     if (!generatedDraft || !contact) return;
     setExportLoading(true);
     try {
-      // In a real app, we'd get the token from Firebase or a separate OAuth
-      // For this MVP, we'll assume the server can handle it if we have the right flow
-      // We'll call our server API
       const response = await fetch("/api/export-doc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: generatedDraft,
-          contactName: contact.name,
-          accessToken: (auth.currentUser as any).stsTokenManager?.accessToken // Hack for MVP demo
+          contactName: contact.name
         })
       });
 
       const data = await response.json();
+      
+      if (response.status === 401) {
+        // Not connected to Workspace
+        const authUrlRes = await fetch("/api/auth/google-url");
+        const { url } = await authUrlRes.json();
+        
+        if (window.confirm("Google Workspace is not connected. Connect now to push this draft?")) {
+          // Open as popup per AI Studio preview guidance
+          const width = 600;
+          const height = 700;
+          const left = window.screenX + (window.outerWidth - width) / 2;
+          const top = window.screenY + (window.outerHeight - height) / 2;
+          
+          window.open(
+            url, 
+            'google_workspace_auth',
+            `width=${width},height=${height},left=${left},top=${top}`
+          );
+        }
+        return;
+      }
+
       if (data.success) {
         // Save to outreach history
         const outreachRef = collection(db, "contacts", id!, "outreach");
@@ -311,6 +379,119 @@ export function ContactDetail() {
     } finally {
       setSaveLoading(false);
     }
+  };
+
+  const handleManualLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !user || !logForm.subject) return;
+    setLogLoading(true);
+    try {
+      if (editingLog) {
+        // Update existing log
+        const logRef = doc(db, "contacts", id, "outreach", editingLog.id);
+        await updateDoc(logRef, {
+          subject: logForm.subject,
+          type: logForm.type,
+          description: logForm.description,
+          notes: logForm.notes,
+          hasResponse: logForm.hasResponse,
+          updatedAt: new Date().toISOString()
+        });
+        toast.success("Interaction updated");
+      } else {
+        // Create new log
+        const outreachRef = collection(db, "contacts", id, "outreach");
+        await addDoc(outreachRef, {
+          contactId: id,
+          subject: logForm.subject,
+          type: logForm.type,
+          description: logForm.description,
+          notes: logForm.notes,
+          hasResponse: logForm.hasResponse,
+          status: "manual",
+          createdBy: user.uid,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        toast.success("Interaction logged successfully");
+      }
+      setIsLogging(false);
+      setEditingLog(null);
+      setLogForm({ subject: "", type: "Email", description: "", notes: "", hasResponse: false });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `contacts/${id}/outreach`);
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
+  const handleLogEmailDraft = async () => {
+    if (!id || !user || !generatedDraft) return;
+    setIsLogEmailLoading(true);
+    try {
+      const outreachRef = collection(db, "contacts", id!, "outreach");
+      await addDoc(outreachRef, {
+        contactId: id,
+        subject: campaignSubject || "Email Outreach",
+        emailBody: generatedDraft,
+        status: "sent",
+        type: "Email",
+        description: generatedDraft,
+        notes: "Draft generated and logged as sent.",
+        createdBy: user?.uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      toast.success("Email interaction logged in history!");
+    } catch (error) {
+       handleFirestoreError(error, OperationType.WRITE, `contacts/${id}/outreach`);
+    } finally {
+      setIsLogEmailLoading(false);
+    }
+  };
+
+  const handleSaveEmailDraft = async () => {
+    if (!id || !user || !generatedDraft) return;
+    setIsSaveDraftLoading(true);
+    try {
+      const outreachRef = collection(db, "contacts", id!, "outreach");
+      await addDoc(outreachRef, {
+        contactId: id,
+        subject: campaignSubject || "Email Draft",
+        emailBody: generatedDraft,
+        status: "draft",
+        type: "Email",
+        description: generatedDraft.substring(0, 200) + (generatedDraft.length > 200 ? "..." : ""),
+        notes: "Saved draft",
+        createdBy: user?.uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      toast.success("Draft saved to history!");
+    } catch (error) {
+       handleFirestoreError(error, OperationType.WRITE, `contacts/${id}/outreach`);
+    } finally {
+      setIsSaveDraftLoading(false);
+    }
+  };
+
+  const handleLoadDraft = (log: any) => {
+    setGeneratedDraft(log.emailBody || log.description || "");
+    setCampaignSubject(log.subject || "");
+    scrollToSection('ai-engine');
+    toast.info("Draft loaded into editor");
+  };
+
+  const openEditLog = (log: any) => {
+    setEditingLog(log);
+    setLogForm({
+      subject: log.subject || "",
+      type: log.type || "Email",
+      description: log.description || "",
+      notes: log.notes || "",
+      hasResponse: log.hasResponse || false
+    });
+    setIsLogging(true);
   };
 
   if (!contact) return <div className="p-8 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto opacity-20" /></div>;
@@ -433,6 +614,9 @@ export function ContactDetail() {
                     <span className="label-mini !text-[8px] mb-0.5">Active Prospect</span>
                     <div className="flex items-center gap-4">
                       <h1 className="text-2xl font-black uppercase tracking-tighter">{contact.name}</h1>
+                      <div className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-full">
+                        <span className="text-[8px] font-black uppercase text-indigo-600 tracking-[0.15em]">{getCatchyPhrase()}</span>
+                      </div>
                       <div className="flex items-center gap-2">
                         <a 
                           href={`mailto:${contact.email}`}
@@ -488,7 +672,10 @@ export function ContactDetail() {
                     {researchLoading ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Search className="w-4 h-4" />}
                     Refresh
                   </button>
-                  <button className="h-9 px-4 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neo-sm hover:translate-y-[-2px] active:translate-y-0 transition-all">
+                  <button 
+                    onClick={() => setIsLogging(true)}
+                    className="h-9 px-4 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-neo-sm hover:translate-y-[-2px] active:translate-y-0 transition-all"
+                  >
                     <Plus className="w-4 h-4" />
                     New outreach
                   </button>
@@ -638,12 +825,19 @@ export function ContactDetail() {
                     onClick={handleGenerate}
                     disabled={genLoading || !contact.researchSummary}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                      contact.researchSummary 
-                      ? 'bg-slate-900 text-white hover:bg-black' 
-                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
+                      genLoading || !contact.researchSummary 
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none' 
+                      : 'bg-slate-900 text-white hover:bg-black shadow-neo-sm'
+                    } flex items-center gap-2`}
                   >
-                    Draft Email
+                    {genLoading ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Drafting...
+                      </>
+                    ) : (
+                      "Write Email"
+                    )}
                   </button>
                 </div>
               </div>
@@ -654,10 +848,12 @@ export function ContactDetail() {
                 </div>
                 
                 {generatedDraft ? (
-                  <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
-                    <div className="font-mono text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap">
-                      {generatedDraft}
-                    </div>
+                  <div className="h-full pr-2">
+                    <textarea 
+                      className="w-full h-full bg-transparent font-mono text-[13px] leading-relaxed text-slate-700 outline-none resize-none custom-scrollbar whitespace-pre-wrap"
+                      value={generatedDraft}
+                      onChange={(e) => setGeneratedDraft(e.target.value)}
+                    />
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-sm py-20">
@@ -668,22 +864,49 @@ export function ContactDetail() {
               </div>
             </div>
 
-            <div className="p-6 border-t-2 border-slate-900 bg-slate-50 flex justify-end gap-3">
+            <div className="p-6 border-t-2 border-slate-900 bg-slate-50 flex justify-between items-center">
               <button 
-                className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest disabled:opacity-50"
+                className="px-4 py-2 text-[10px] uppercase tracking-widest font-black text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
                 onClick={() => setGeneratedDraft("")}
                 disabled={!generatedDraft}
               >
                 Clear Draft
               </button>
-              <button 
-                className="neo-button-primary !px-6 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:shadow-none"
-                onClick={handleExport}
-                disabled={!generatedDraft || exportLoading}
-              >
-                {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Push to Workspace
-              </button>
+              
+              <div className="flex gap-3">
+                <button 
+                  className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+                  onClick={handleSaveEmailDraft}
+                  disabled={!generatedDraft || isSaveDraftLoading}
+                >
+                  {isSaveDraftLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Save Draft
+                </button>
+                <button 
+                  className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+                  onClick={handleLogEmailDraft}
+                  disabled={!generatedDraft || isLogEmailLoading}
+                >
+                  {isLogEmailLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Log as Sent
+                </button>
+                <button 
+                  className="neo-button-outline !px-4 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+                  onClick={handleCopy}
+                  disabled={!generatedDraft}
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy to Clipboard
+                </button>
+                <button 
+                  className="neo-button-primary !px-6 !py-2 text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 disabled:shadow-none"
+                  onClick={handleExport}
+                  disabled={!generatedDraft || exportLoading}
+                >
+                  {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Push to Workspace
+                </button>
+              </div>
             </div>
           </section>
 
@@ -697,32 +920,47 @@ export function ContactDetail() {
                   </h2>
                   <span className="text-[9px] font-black uppercase text-slate-300">{notes.length} logs</span>
                </div>
-               
-               <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                  {notes.map((note) => (
-                    <div key={note.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl relative group">
-                       <p className="text-xs font-bold text-slate-700 leading-relaxed mb-2 whitespace-pre-wrap">{note.text}</p>
-                       <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                          <span className="text-[8px] font-black uppercase text-slate-400">{new Date(note.createdAt).toLocaleDateString()} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <button 
-                            onClick={async () => {
-                              if (window.confirm("Delete note?")) {
-                                try {
-                                  await deleteDoc(doc(db, "contacts", id!, "notes", note.id));
-                                  toast.success("Note deleted");
-                                } catch (e) {
-                                  toast.error("Failed to delete note");
-                                }
-                              }
-                            }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-50 hover:text-red-500 rounded"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                       </div>
-                    </div>
-                  ))}
-                  {notes.length === 0 && (
+                              <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                   {/* Combined Notes from regular notes and outreach notes */}
+                   {[
+                     ...notes.map(n => ({ ...n, source: 'Internal' })),
+                     ...outreach.filter(o => o.notes).map(o => ({ 
+                       id: `outreach-${o.id}`, 
+                       text: o.notes, 
+                       createdAt: o.createdAt, 
+                       source: `Interaction Note (${o.type || 'Outreach'})` 
+                     }))
+                   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((note) => (
+                     <div key={note.id} className={`p-4 border rounded-xl relative group ${note.source === 'Internal' ? 'bg-slate-50 border-slate-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                           <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${note.source === 'Internal' ? 'bg-slate-200 text-slate-600' : 'bg-indigo-600 text-white'}`}>
+                             {note.source}
+                           </span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-700 leading-relaxed mb-2 whitespace-pre-wrap">{note.text}</p>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                           <span className="text-[8px] font-black uppercase text-slate-400">{new Date(note.createdAt).toLocaleDateString()} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                           {note.source === 'Internal' && (
+                           <button 
+                             onClick={async () => {
+                               if (window.confirm("Delete note?")) {
+                                 try {
+                                   await deleteDoc(doc(db, "contacts", id!, "notes", note.id));
+                                   toast.success("Note deleted");
+                                 } catch (e) {
+                                   toast.error("Failed to delete note");
+                                 }
+                               }
+                             }}
+                             className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-50 hover:text-red-500 rounded"
+                           >
+                             <Trash2 className="w-3.5 h-3.5" />
+                           </button>
+                           )}
+                        </div>
+                     </div>
+                   ))}
+                   {notes.length === 0 && outreach.filter(o => o.notes).length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-xs py-10">
                       <MessageSquare className="w-6 h-6 mb-2" />
                       No notes yet
@@ -749,33 +987,87 @@ export function ContactDetail() {
                </div>
             </section>
 
-            {/* History Log */}
             <section id="history" className="neo-card relative overflow-hidden group h-[300px] flex flex-col scroll-mt-24 !p-0">
-               <div className="p-4 bg-white border-b-2 border-slate-900">
+               <div className="p-4 bg-white border-b-2 border-slate-900 flex justify-between items-center">
                   <h2 className="label-mini flex items-center gap-2">
                     <History className="w-4 h-4" />
                     Outreach History
                   </h2>
+                  <button 
+                    onClick={() => setIsLogging(true)}
+                    className="text-[9px] font-black uppercase text-indigo-600 hover:text-indigo-800 transition-colors"
+                  >
+                    + Log Interaction
+                  </button>
                </div>
               <div className="space-y-4 relative z-10 overflow-y-auto p-4 flex-1 custom-scrollbar">
                 {outreach.map((log) => (
                   <div key={log.id} className="flex gap-4 items-start pb-4 border-b border-slate-100 last:border-0 last:pb-0">
-                    <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2 ${
+                      log.status === 'manual' ? 'bg-slate-50 border-slate-200' : 'bg-green-50 border-green-200'
+                    }`}>
+                      {log.type === 'Call' ? <Phone className="w-3.5 h-3.5 text-slate-500" /> : 
+                       log.type === 'LinkedIn' ? <Linkedin className="w-3.5 h-3.5 text-[#0A66C2]" /> :
+                       <CheckCircle2 className={`w-3.5 h-3.5 ${log.status === 'manual' ? 'text-slate-400' : 'text-green-600'}`} />}
                     </div>
-                    <div className="overflow-hidden">
-                      <p className="text-xs font-black uppercase tracking-tight truncate">{log.subject}</p>
+                    <div className="overflow-hidden flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-black uppercase tracking-tight truncate">{log.subject}</p>
+                        {log.hasResponse && (
+                          <span className="px-1.5 py-0.5 bg-green-500 text-white text-[8px] font-black uppercase rounded shadow-neo-sm flex items-center gap-1">
+                            <MessageSquare className="w-2.5 h-2.5" />
+                            Responded
+                          </span>
+                        )}
+                      </div>
+                      {log.description && <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">{log.description}</p>}
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(log.createdAt).toLocaleDateString()}</span>
-                        <span className="text-[9px] font-bold text-indigo-600 uppercase">Google Document</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">
+                          {new Date(log.createdAt).toLocaleDateString()}
+                          {log.updatedAt && log.updatedAt !== log.createdAt && ` (Updated ${new Date(log.updatedAt).toLocaleDateString()})`}
+                        </span>
+                        <span className={`text-[9px] font-bold uppercase ${log.status === 'manual' ? 'text-slate-400' : 'text-indigo-600'}`}>
+                          {log.type || 'Email'}
+                        </span>
                       </div>
                     </div>
-                    <div className="ml-auto">
+                    <div className="ml-auto flex items-center gap-1">
+                        {log.status === 'draft' && (
+                          <button 
+                            onClick={() => handleLoadDraft(log)}
+                            className="p-2 hover:bg-slate-100 rounded transition-colors text-indigo-600"
+                            title="Load draft into editor"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+                          </button>
+                        )}
                         {log.docUrl && (
                           <a href={log.docUrl} target="_blank" rel="noopener" className="p-2 hover:bg-slate-100 rounded transition-colors group/link">
                             <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover/link:text-slate-900" />
                           </a>
                         )}
+                        <button 
+                          onClick={() => openEditLog(log)}
+                          className="p-2 hover:bg-slate-100 rounded transition-colors"
+                          title="Edit interaction"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm("Delete this log?")) {
+                              try {
+                                await deleteDoc(doc(db, "contacts", id!, "outreach", log.id));
+                                toast.success("Log deleted");
+                              } catch (e) {
+                                toast.error("Failed to delete log");
+                              }
+                            }
+                          }}
+                          className="p-2 hover:bg-red-50 hover:text-red-500 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                     </div>
                   </div>
                 ))}
@@ -797,6 +1089,132 @@ export function ContactDetail() {
           </div>
         </div>
       </div>
+
+      {/* Manual Log Modal */}
+      <AnimatePresence>
+        {isLogging && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-md bg-white border-2 border-slate-900 rounded-3xl shadow-neo-lg overflow-hidden"
+            >
+              <div className="p-6 border-b-2 border-slate-900 bg-indigo-50 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <History className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-lg font-black uppercase tracking-tighter">
+                    {editingLog ? "Edit Interaction" : "Log Interaction"}
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => {
+                    setIsLogging(false);
+                    setEditingLog(null);
+                    setLogForm({ subject: "", type: "Email", description: "", notes: "", hasResponse: false });
+                  }}
+                  className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-slate-900"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleManualLog} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1.5 ml-1">Interaction Type</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['Email', 'Call', 'LinkedIn', 'Meeting'].map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setLogForm({ ...logForm, type })}
+                        className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 transition-all ${
+                          logForm.type === type 
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-neo-sm' 
+                          : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1.5 ml-1">Subject / title *</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="e.g. Follow up on Q4 Roadmap"
+                    className="w-full p-3 bg-slate-50 border-2 border-slate-900 rounded-2xl text-xs font-bold focus:outline-none focus:bg-white transition-all"
+                    value={logForm.subject}
+                    onChange={e => setLogForm({ ...logForm, subject: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1.5 ml-1">Overview / Description</label>
+                  <textarea 
+                    placeholder="Briefly describe what happened..."
+                    className="w-full p-3 bg-slate-50 border-2 border-slate-900 rounded-2xl text-xs font-bold focus:outline-none focus:bg-white transition-all min-h-[80px]"
+                    value={logForm.description}
+                    onChange={e => setLogForm({ ...logForm, description: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1.5 ml-1 flex justify-between">
+                    Internal Notes
+                    <span className="text-[8px] text-slate-300 font-bold">(Displays in Internal Notes)</span>
+                  </label>
+                  <textarea 
+                    placeholder="Deep details, specific pushback, or context for team..."
+                    className="w-full p-3 bg-indigo-50/30 border-2 border-slate-900 rounded-2xl text-xs font-bold focus:outline-none focus:bg-white transition-all min-h-[100px]"
+                    value={logForm.notes}
+                    onChange={e => setLogForm({ ...logForm, notes: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                   <div className="relative flex items-center">
+                    <input 
+                      type="checkbox"
+                      id="hasResponse"
+                      className="w-5 h-5 rounded border-2 border-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      checked={logForm.hasResponse}
+                      onChange={e => setLogForm({ ...logForm, hasResponse: e.target.checked })}
+                    />
+                   </div>
+                   <label htmlFor="hasResponse" className="text-[10px] font-black uppercase text-slate-600 select-none cursor-pointer">
+                     Has Responded to Outreach
+                   </label>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setIsLogging(false);
+                      setEditingLog(null);
+                      setLogForm({ subject: "", type: "Email", description: "", notes: "", hasResponse: false });
+                    }}
+                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all font-black"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={logLoading || !logForm.subject}
+                    className="flex-[2] px-4 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-neo transition-all flex items-center justify-center gap-2"
+                  >
+                    {logLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : editingLog ? "Update Interaction" : "Log Interaction"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   </div>
   );

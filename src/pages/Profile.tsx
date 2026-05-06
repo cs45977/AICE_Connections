@@ -32,7 +32,10 @@ import {
   Settings,
   Users,
   X,
-  Copy
+  Copy,
+  ExternalLink,
+  CheckCircle2,
+  Cloud
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
@@ -59,12 +62,16 @@ export function Profile() {
     description: "",
     researchPrompt: "",
     outreachPrompt: "",
+    customDiscoveryRequirements: "",
     isDefault: false
   });
 
   // System Defaults
   const [systemPrompts, setSystemPrompts] = useState<any[]>([]);
   const [viewingPrompt, setViewingPrompt] = useState<any>(null);
+  
+  const [isWorkspaceConnected, setIsWorkspaceConnected] = useState(false);
+  const [isConfigLoading, setIsConfigLoading] = useState(true);
 
   const copyPromptText = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -85,8 +92,53 @@ export function Profile() {
       setLoadingPersonas(false);
     });
 
-    return () => unsubPersonas();
+    // Check workspace status
+    const checkStatus = () => {
+      fetch("/api/config/status")
+        .then(res => res.json())
+        .then(data => {
+          setIsWorkspaceConnected(data.googleConnected);
+          setIsConfigLoading(false);
+        });
+    };
+
+    checkStatus();
+
+    // Listen for success message from popup
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data?.provider === 'google') {
+        toast.success("Workspace connected successfully!");
+        checkStatus();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      unsubPersonas();
+      window.removeEventListener('message', handleMessage);
+    };
   }, [user]);
+
+  const handleConnectWorkspace = async () => {
+    try {
+      const res = await fetch("/api/auth/google-url");
+      const { url } = await res.json();
+      
+      // Open as popup per AI Studio preview guidance
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      
+      window.open(
+        url, 
+        'google_workspace_auth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+    } catch (error) {
+      toast.error("Failed to initiate Google connection");
+    }
+  };
 
   // Seed standard agent if it doesn't exist
   useEffect(() => {
@@ -212,6 +264,7 @@ export function Profile() {
           research: personaForm.researchPrompt,
           outreach: personaForm.outreachPrompt
         },
+        customDiscoveryRequirements: personaForm.customDiscoveryRequirements,
         isDefault: personaForm.isDefault,
         updatedAt: new Date().toISOString()
       };
@@ -245,6 +298,7 @@ export function Profile() {
         description: "",
         researchPrompt: "",
         outreachPrompt: "",
+        customDiscoveryRequirements: "",
         isDefault: false
       });
     } catch (error) {
@@ -274,55 +328,114 @@ export function Profile() {
       description: p.description || "",
       researchPrompt: p.customPrompts?.research || "",
       outreachPrompt: p.customPrompts?.outreach || "",
+      customDiscoveryRequirements: p.customDiscoveryRequirements || "",
       isDefault: p.isDefault || false
     });
     setShowPersonaForm(true);
   };
 
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+
+  const scrollToSection = (id: string) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const navItems = [
+    { id: 'general-info', label: 'General', icon: UserIcon },
+    { id: 'workspace-info', label: 'Workspace', icon: Cloud },
+    { id: 'personas-section', label: 'Personas', icon: Sparkles },
+    { id: 'system-defaults', label: 'Defaults', icon: Settings },
+  ];
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="flex flex-col md:flex-row gap-12">
+      <div className="flex flex-col md:flex-row gap-8 lg:gap-12 relative">
         {/* Sidebar Nav */}
-        <div className="w-full md:w-64 space-y-2">
-          <div className="mb-8">
-            <h1 className="text-3xl font-black uppercase tracking-tighter">Profile</h1>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Account Settings</p>
+        <motion.div 
+          onHoverStart={() => setIsSidebarHovered(true)}
+          onHoverEnd={() => setIsSidebarHovered(false)}
+          initial={false}
+          animate={{ width: isSidebarHovered ? 240 : 64 }}
+          className="hidden md:block sticky top-24 h-fit bg-white border-2 border-slate-900 rounded-3xl shadow-neo p-3 z-40 transition-shadow hover:shadow-neo-lg"
+        >
+          <div className="mb-8 px-2 overflow-hidden flex flex-col items-center md:items-start">
+            <AnimatePresence mode="wait">
+              {isSidebarHovered ? (
+                <motion.div
+                  key="expanded-header"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                >
+                  <h1 className="text-xl font-black uppercase tracking-tighter whitespace-nowrap">Profile</h1>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none">Account Settings</p>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="collapsed-header"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex justify-center w-full"
+                >
+                  <UserIcon className="w-5 h-5 text-indigo-600" />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           
-          <button className="w-full flex items-center justify-between p-3 bg-white border-2 border-slate-900 rounded-xl shadow-neo-sm font-black uppercase text-xs tracking-widest text-indigo-600">
-            <div className="flex items-center gap-3">
-              <UserIcon className="w-4 h-4" />
-              General
-            </div>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          
-          <button className="w-full flex items-center justify-between p-3 bg-white border-2 border-slate-200 rounded-xl font-black uppercase text-xs tracking-widest text-slate-400 hover:border-slate-900 hover:text-slate-900 transition-all">
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-4 h-4" />
-              Personas
-            </div>
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="space-y-2">
+            {navItems.map((item) => (
+              <button 
+                key={item.id}
+                onClick={() => scrollToSection(item.id)}
+                className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition-all group"
+              >
+                <item.icon className="w-5 h-5 shrink-0 group-hover:text-indigo-600 transition-colors" />
+                <AnimatePresence>
+                  {isSidebarHovered && (
+                    <motion.span
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      className="font-black uppercase text-[10px] tracking-widest whitespace-nowrap"
+                    >
+                      {item.label}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </button>
+            ))}
 
-          {role === "admin" && (
-            <div className="mt-8 p-4 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                <span className="text-[10px] font-black uppercase text-indigo-600">Admin Privileges</span>
-              </div>
-              <p className="text-[9px] font-bold text-indigo-400 uppercase leading-tight italic">
-                You have global power to manage system-level prompts and users.
-              </p>
-            </div>
-          )}
-        </div>
+            <AnimatePresence>
+              {isSidebarHovered && role === "admin" && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="mt-8 p-4 bg-indigo-50 border-2 border-indigo-200 rounded-xl"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                    <span className="text-[10px] font-black uppercase text-indigo-600">Admin</span>
+                  </div>
+                  <p className="text-[9px] font-bold text-indigo-400 uppercase leading-tight italic">
+                    Global power enabled.
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
 
         {/* Main Content Area */}
         <div className="flex-1 space-y-12">
           
           {/* General Information */}
-          <section className="space-y-6">
+          <section id="general-info" className="space-y-6 scroll-mt-24">
             <div className="flex justify-between items-end border-b-2 border-slate-900 pb-2">
               <h2 className="text-2xl font-black uppercase tracking-tight">Personal Information</h2>
               <Settings className="w-5 h-5 text-slate-300" />
@@ -379,8 +492,60 @@ export function Profile() {
             </form>
           </section>
 
+          {/* Google Workspace Integration */}
+          <section id="workspace-info" className="space-y-6 scroll-mt-24">
+            <div className="flex justify-between items-end border-b-2 border-slate-900 pb-2">
+              <h2 className="text-2xl font-black uppercase tracking-tight">Google Workspace</h2>
+              <Cloud className="w-5 h-5 text-slate-300" />
+            </div>
+
+            <div className="bg-white p-8 rounded-2xl border-2 border-slate-900 shadow-neo flex flex-col md:flex-row items-center gap-8 justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border-2 border-slate-900 shadow-neo-sm ${isWorkspaceConnected ? 'bg-green-50' : 'bg-slate-50'}`}>
+                    <Cloud className={`w-6 h-6 ${isWorkspaceConnected ? 'text-green-600' : 'text-slate-300'}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-black uppercase tracking-tight">Technical Sales Engine</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Docs & Drive Automation</p>
+                  </div>
+                </div>
+                <p className="text-xs font-medium text-slate-600 max-w-md leading-relaxed">
+                  Connect your Google Workspace to automatically push hyper-personalized outreach drafts directly to Google Docs and manage campaign documents.
+                </p>
+              </div>
+
+              <div className="shrink-0">
+                {isConfigLoading ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                ) : isWorkspaceConnected ? (
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-2 border-green-200 rounded-xl">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <span className="text-[10px] font-black uppercase text-green-600 tracking-widest">Workspace Connected</span>
+                    </div>
+                    <button 
+                      onClick={handleConnectWorkspace}
+                      className="text-[9px] font-black uppercase text-slate-400 hover:text-slate-900 underline underline-offset-4"
+                    >
+                      Reconnect account
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={handleConnectWorkspace}
+                    className="px-8 py-3 bg-slate-900 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-indigo-600 shadow-neo transition-all flex items-center gap-2"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Connect Workspace
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+
           {/* AI Personas & Prompts Command Center */}
-          <section className="space-y-6">
+          <section id="personas-section" className="space-y-6 scroll-mt-24">
             <div className="flex justify-between items-end border-b-2 border-slate-900 pb-2">
               <h2 className="text-2xl font-black uppercase tracking-tight">AI Personas & Prompts</h2>
               <div className="flex gap-2">
@@ -395,6 +560,7 @@ export function Profile() {
                       description: "",
                       researchPrompt: "",
                       outreachPrompt: "",
+                      customDiscoveryRequirements: "",
                       isDefault: false
                     });
                     setShowPersonaForm(!showPersonaForm);
@@ -475,6 +641,16 @@ export function Profile() {
                             value={personaForm.description}
                             onChange={e => setPersonaForm({...personaForm, description: e.target.value})}
                           />
+                        </div>
+                        <div className="md:col-span-2 space-y-2">
+                          <label className="label-mini">Custom "Your Requirements" (Discovery)</label>
+                          <textarea 
+                            placeholder="e.g. Search for CTOs and Engineering Directors..."
+                            className="w-full h-24 p-4 bg-indigo-50 border-2 border-indigo-100 rounded-xl text-sm font-bold focus:outline-none focus:border-slate-900 transition-all"
+                            value={personaForm.customDiscoveryRequirements}
+                            onChange={e => setPersonaForm({...personaForm, customDiscoveryRequirements: e.target.value})}
+                          />
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Optional: Auto-populate the discovery requirements when this persona is selected.</p>
                         </div>
                       </div>
 

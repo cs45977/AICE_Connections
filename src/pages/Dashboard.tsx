@@ -4,7 +4,7 @@ import { db } from "../lib/firebase";
 import { useAuth } from "../lib/auth";
 import { handleFirestoreError, OperationType } from "../lib/firestore-errors";
 import { Plus, Search, Mail, ExternalLink, Calendar, Sparkles, Upload, Download, Linkedin, Phone } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "motion/react";
 import Papa from "papaparse";
 import { toast } from "sonner";
@@ -12,11 +12,27 @@ import { toast } from "sonner";
 export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [contacts, setContacts] = useState<any[]>([]);
+  const isInsightsView = location.pathname === "/contacts";
   const [recentOutreach, setRecentOutreach] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [personas, setPersonas] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "users", user.uid, "personas"));
+    const unsub = onSnapshot(q, (snap) => {
+      const pMap: Record<string, any> = {};
+      snap.docs.forEach(doc => {
+        pMap[doc.id] = doc.data();
+      });
+      setPersonas(pMap);
+    });
+    return () => unsub();
+  }, [user]);
 
   const handleDownloadTemplate = () => {
     const csvContent = "Name,Email,Job Title,Company,LinkedIn URL,Phone\nJohn Doe,john@example.com,CTO,Acme Corp,https://linkedin.com/in/johndoe,+15550000000";
@@ -119,9 +135,13 @@ export function Dashboard() {
     <div className="max-w-7xl mx-auto px-6 py-10">
       <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b-2 border-slate-900">
         <div>
-          <h1 className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">Master Pipeline</h1>
+          <h1 className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">
+            {isInsightsView ? "Performance Analytics" : "Master Pipeline"}
+          </h1>
           <div className="flex items-center gap-4">
-            <h2 className="text-4xl font-black tracking-tighter uppercase">Prospects</h2>
+            <h2 className="text-4xl font-black tracking-tighter uppercase">
+              {isInsightsView ? "Pipeline Insights" : "Prospects"}
+            </h2>
             <span className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-bold font-mono">{contacts.length} Total</span>
           </div>
         </div>
@@ -228,6 +248,12 @@ export function Dashboard() {
                       <span className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] font-black uppercase text-slate-500">
                         {contact.role || 'Contact'}
                       </span>
+                      {contact.discoveryPersonaId && personas[contact.discoveryPersonaId] && (
+                        <span className="px-1.5 py-0.5 bg-indigo-100 border border-indigo-200 rounded text-[9px] font-black uppercase text-indigo-700 flex items-center gap-1">
+                          <Sparkles className="w-2 h-2" />
+                          {personas[contact.discoveryPersonaId].name}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">

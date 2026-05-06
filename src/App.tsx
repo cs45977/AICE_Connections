@@ -5,6 +5,9 @@ import { Dashboard } from "./pages/Dashboard";
 import { ContactDetail } from "./pages/ContactDetail";
 import { NewContact } from "./pages/NewContact";
 import { FindProspects } from "./pages/FindProspects";
+import { UnsentDrafts } from "./pages/UnsentDrafts";
+import { Insights } from "./pages/Insights";
+import { TechnicalRequirements } from "./pages/TechnicalRequirements";
 import { Admin } from "./pages/Admin";
 import { Profile } from "./pages/Profile";
 import { Login } from "./pages/Login";
@@ -81,10 +84,26 @@ export default function App() {
             } 
           />
           <Route 
+            path="/admin/requirements" 
+            element={
+              <AdminRoute>
+                <TechnicalRequirements />
+              </AdminRoute>
+            } 
+          />
+          <Route 
             path="/contacts" 
             element={
               <ProtectedRoute>
-                <Dashboard />
+                <Insights />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/unsent-drafts" 
+            element={
+              <ProtectedRoute>
+                <UnsentDrafts />
               </ProtectedRoute>
             } 
           />

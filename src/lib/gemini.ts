@@ -5,15 +5,31 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 // Initialize Gemini on the client
 // AI Studio injects GEMINI_API_KEY into the environment
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const apiKey = process.env.GEMINI_API_KEY;
+
+if (!apiKey) {
+  console.error("GEMINI_API_KEY is missing from process.env");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 
 async function callGemini(model: string, prompt: string, config?: any) {
+  if (!apiKey) {
+    const error = new Error("Gemini API Key is missing. Please check your application environment settings.");
+    toast.error("AI Configuration Error: Missing API Key.");
+    throw error;
+  }
   try {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
       config
     });
+    
+    if (!response || !response.text) {
+      throw new Error("Empty response received from AI model.");
+    }
+
     return response;
   } catch (error: any) {
     console.error("Gemini Error:", error);
@@ -174,6 +190,18 @@ export async function generateEmail(subject: string, researchSummary: string, co
     return response.text;
   } catch (error: any) {
     const errData = String(error);
+    const isForbidden = errData.toLowerCase().includes("forbidden") || errData.toLowerCase().includes("403");
+    
+    if (isForbidden && window.location.hostname !== "localhost") {
+       toast.error("Grounding restricted on this domain. Falling back to non-grounded generation.");
+       try {
+         const retryResponse = await callGemini("gemini-3-flash-preview", prompt);
+         return retryResponse.text;
+       } catch (retryErr) {
+         throw retryErr;
+       }
+    }
+
     const isRateLimit = errData.includes("429") || 
                         errData.includes("RESOURCE_EXHAUSTED") || 
                         errData.includes("quota") ||
@@ -229,9 +257,15 @@ export async function generateSuggestedGoals(contact: { name: string, role: stri
   }
 }
 
-export async function generateDiscoveryQuestions(company: { name: string, url: string, linkedin?: string }) {
+export async function generateDiscoveryQuestions(company: { name: string, url: string, linkedin?: string }, persona?: PersonaContext) {
   const template = await getPromptTemplate("generateDiscoveryQuestions");
-  const prompt = replaceVariables(template, {
+  
+  let contextInfo = "";
+  if (persona) {
+    contextInfo = `\nContext: You are ${persona.agentName || "an AI Assistant"} working as ${persona.agentRole || "a Technical Researcher"}. Your goal is to represent this identity in your questions.\n`;
+  }
+
+  const prompt = contextInfo + replaceVariables(template, {
     companyName: company.name,
     companyUrl: company.url
   });
@@ -240,9 +274,15 @@ export async function generateDiscoveryQuestions(company: { name: string, url: s
   return response.text;
 }
 
-export async function searchProspects(company: { name: string, url: string }, searchCriteria: string) {
+export async function searchProspects(company: { name: string, url: string }, searchCriteria: string, persona?: PersonaContext) {
   const template = await getPromptTemplate("searchProspects");
-  const prompt = replaceVariables(template, {
+
+  let contextInfo = "";
+  if (persona) {
+    contextInfo = `\nContext: You are ${persona.agentName || "an AI Assistant"} working as ${persona.agentRole || "a Technical Researcher"}. You are seeking prospects that would be ideal targets for your role and company mission.\n`;
+  }
+
+  const prompt = contextInfo + replaceVariables(template, {
     companyName: company.name,
     companyUrl: company.url,
     criteria: searchCriteria

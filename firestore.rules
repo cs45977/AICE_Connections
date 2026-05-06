@@ -13,7 +13,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) { 
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$'); 
     }
 
     function incoming() { return request.resource.data; }
@@ -28,24 +28,23 @@ service cloud.firestore {
     }
 
     // --- 1. Users ---
+    match /{path=**}/outreach/{outreachId} {
+      allow read: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+    }
+
     match /users/{userId} {
       function isValidUser(data) {
         return data.uid == userId &&
                data.uid == request.auth.uid &&
-               data.email == request.auth.token.email &&
+               data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
                data.role in ['user', 'admin'] &&
-               data.createdAt is string &&
-               (!data.keys().contains('hasSeededStandardAgent') || data.hasSeededStandardAgent is bool) &&
-               (!data.keys().contains('emailVerificationExempt') || data.emailVerificationExempt is bool) &&
-               (!data.keys().contains('profileUpdated') || data.profileUpdated is bool);
+               data.createdAt is string;
       }
 
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming());
       allow update: if isSignedIn() && (
-        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'profileUpdated', 'hasSeededStandardAgent']) && 
-          (incoming().displayName is string || !incoming().keys().contains('displayName')) &&
-          (incoming().hasSeededStandardAgent is bool || !incoming().keys().contains('hasSeededStandardAgent'))
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'profileUpdated', 'hasSeededStandardAgent'])
         ) ||
         (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role']))
       );
@@ -55,13 +54,7 @@ service cloud.firestore {
       match /personas/{personaId} {
         function isValidPersona(data) {
           return data.name is string && data.name.size() <= 100 &&
-                 (!data.keys().contains('agentName') || data.agentName is string) &&
-                 (!data.keys().contains('agentRole') || data.agentRole is string) &&
-                 (!data.keys().contains('agentEmail') || data.agentEmail is string) &&
-                 (!data.keys().contains('description') || data.description is string) &&
-                 (!data.keys().contains('customPrompts') || data.customPrompts is map) &&
-                 (!data.keys().contains('isDefault') || data.isDefault is bool) &&
-                 (!data.keys().contains('updatedAt') || data.updatedAt is string) &&
+                 (!data.keys().hasAny(['customDiscoveryRequirements']) || data.customDiscoveryRequirements is string) &&
                  data.createdAt is string;
         }
         allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
@@ -84,7 +77,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming());
       allow update: if isSignedIn() && (
         // Action: Update details
-        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company', 'phone']) && isValidContact(incoming())) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company', 'phone', 'discoveryPersonaId']) && isValidContact(incoming())) ||
         // Action: AI Research Update
         (incoming().diff(existing()).affectedKeys().hasOnly(['researchSummary', 'updatedAt']) && incoming().updatedAt is string) ||
         isAdmin()
@@ -109,18 +102,25 @@ service cloud.firestore {
         function isValidOutreach(data) {
           return data.contactId == contactId &&
                  (data.createdBy == request.auth.uid || isAdmin()) &&
-                 data.emailBody is string && data.emailBody.size() <= 10000 &&
-                 data.status in ['draft', 'sent'];
+                 data.status in ['draft', 'sent', 'manual', 'wont-send'] &&
+                 (!data.keys().hasAny(['emailBody']) || (data.emailBody is string && data.emailBody.size() <= 10000)) &&
+                 (!data.keys().hasAny(['subject']) || (data.subject is string && data.subject.size() <= 700)) &&
+                 (!data.keys().hasAny(['type']) || (data.type is string && data.type.size() <= 100)) &&
+                 (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 10000)) &&
+                 (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 10000)) &&
+                 (!data.keys().hasAny(['hasResponse']) || data.hasResponse is bool) &&
+                 (!data.keys().hasAny(['createdAt']) || data.createdAt is string) &&
+                 (!data.keys().hasAny(['updatedAt']) || data.updatedAt is string) &&
+                 (!data.keys().hasAny(['docUrl']) || data.docUrl is string);
         }
 
         allow read: if isSignedIn();
         allow create: if isSignedIn() && isValidId(outreachId) && isValidOutreach(incoming());
         allow update: if isSignedIn() && (
-          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'docUrl']) &&
-          incoming().status in ['draft', 'sent']) ||
+          (isValidOutreach(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'docUrl', 'subject', 'type', 'description', 'notes', 'hasResponse', 'updatedAt'])) ||
           isAdmin()
         );
-        allow delete: if isAdmin();
+        allow delete: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
       }
     }
 
@@ -136,7 +136,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && isValidId(discoveryId) && isValidDiscovery(incoming());
       allow update: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin()) && (
-        incoming().diff(existing()).affectedKeys().hasAny(['criteria', 'results'])
+        incoming().diff(existing()).affectedKeys().hasAny(['criteria', 'results', 'personaId'])
       );
       allow delete: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
     }
@@ -151,6 +151,18 @@ service cloud.firestore {
 
       allow read: if isSignedIn();
       allow create, update, delete: if isAdmin() && isValidPrompt(incoming());
+    }
+
+    // --- 6. Global Settings ---
+    match /settings/{settingId} {
+      function isValidSetting(data) {
+        return data.id == settingId &&
+               data.defaultDiscoveryRequirements is string &&
+               data.defaultDiscoveryRequirements.size() <= 5000;
+      }
+
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() && isValidSetting(incoming());
     }
   }
 }

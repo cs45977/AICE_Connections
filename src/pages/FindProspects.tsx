@@ -24,6 +24,7 @@ interface DiscoveryRecord {
   linkedinUrl: string;
   criteria: string;
   results: Prospect[];
+  personaId?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -40,7 +41,48 @@ export function FindProspects() {
   const [userCriteria, setUserCriteria] = useState("");
   const [results, setResults] = useState<Prospect[] | string>([]);
   const [addedProspects, setAddedProspects] = useState<Set<string>>(new Set());
+  const [activeDiscoveryId, setActiveDiscoveryId] = useState<string | null>(null);
   
+  const [personas, setPersonas] = useState<any[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string>("");
+  const [globalRequirements, setGlobalRequirements] = useState("Search for C-Suite Executives, Members of the Board, and Vice Presidents in the company.");
+
+  // Fetch global settings
+  useEffect(() => {
+    return onSnapshot(doc(db, "settings", "global"), (docSnap) => {
+      if (docSnap.exists()) {
+        setGlobalRequirements(docSnap.data().defaultDiscoveryRequirements || "Search for C-Suite Executives, Members of the Board, and Vice Presidents in the company.");
+      }
+    });
+  }, []);
+
+  // Sync criteria with persona selection
+  useEffect(() => {
+    if (activeDiscoveryId) return; // Don't overwrite if recalling history
+
+    const selectedPersona = personas.find(p => p.id === selectedPersonaId);
+    if (selectedPersona?.customDiscoveryRequirements) {
+      setUserCriteria(selectedPersona.customDiscoveryRequirements);
+    } else {
+      setUserCriteria(globalRequirements);
+    }
+  }, [selectedPersonaId, personas, globalRequirements, activeDiscoveryId]);
+
+  // Fetch personas
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "users", user.uid, "personas"), orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snapshot) => {
+      const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPersonas(pList);
+      // Set default persona if available and none selected
+      if (pList.length > 0 && !selectedPersonaId) {
+        const defaultPersona = pList.find((p: any) => p.isDefault) || pList[0];
+        setSelectedPersonaId(defaultPersona.id);
+      }
+    });
+  }, [user]);
+
   // Fetch existing contacts to mark as added
   useEffect(() => {
     if (!user) return;
@@ -60,7 +102,6 @@ export function FindProspects() {
 
   const [history, setHistory] = useState<DiscoveryRecord[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [activeDiscoveryId, setActiveDiscoveryId] = useState<string | null>(null);
 
   // Fetch history
   useEffect(() => {
@@ -96,6 +137,12 @@ export function FindProspects() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // If manual criteria was already entered or we want to ensure it's set if not recalled
+    if (!userCriteria) {
+      const selectedPersona = personas.find(p => p.id === selectedPersonaId);
+      setUserCriteria(selectedPersona?.customDiscoveryRequirements || globalRequirements);
+    }
     
     // Normalize URLs
     const normalizedCompany = {
@@ -105,7 +152,14 @@ export function FindProspects() {
     };
     
     try {
-      const questions = await generateDiscoveryQuestions(normalizedCompany);
+      const selectedPersona = personas.find(p => p.id === selectedPersonaId);
+      const personaContext = selectedPersona ? {
+        agentName: selectedPersona.agentName,
+        agentRole: selectedPersona.agentRole,
+        agentEmail: selectedPersona.agentEmail
+      } : undefined;
+
+      const questions = await generateDiscoveryQuestions(normalizedCompany, personaContext);
       setAiQuestions(questions);
       setStep("questioning");
       // Update state with normalized values for consistency
@@ -125,7 +179,14 @@ export function FindProspects() {
     setError(null);
     setStep("searching");
     try {
-      const prospectResults = await searchProspects(company, userCriteria);
+      const selectedPersona = personas.find(p => p.id === selectedPersonaId);
+      const personaContext = selectedPersona ? {
+        agentName: selectedPersona.agentName,
+        agentRole: selectedPersona.agentRole,
+        agentEmail: selectedPersona.agentEmail
+      } : undefined;
+
+      const prospectResults = await searchProspects(company, userCriteria, personaContext);
       const safeResults = Array.isArray(prospectResults) ? prospectResults : [];
       setResults(safeResults);
       
@@ -134,6 +195,7 @@ export function FindProspects() {
         await updateDoc(doc(db, "discoveries", activeDiscoveryId), {
           results: safeResults,
           criteria: userCriteria,
+          personaId: selectedPersonaId || null,
           updatedAt: new Date().toISOString()
         });
         toast.success("Discovery refreshed and updated.");
@@ -145,6 +207,7 @@ export function FindProspects() {
           linkedinUrl: company.linkedin,
           criteria: userCriteria,
           results: safeResults,
+          personaId: selectedPersonaId || null,
           createdBy: user?.uid,
           createdAt: new Date().toISOString()
         });
@@ -170,6 +233,7 @@ export function FindProspects() {
     });
     setUserCriteria(record.criteria);
     setResults(record.results);
+    setSelectedPersonaId(record.personaId || "");
     setActiveDiscoveryId(record.id);
     setStep("results");
     setShowHistory(false);
@@ -208,6 +272,7 @@ export function FindProspects() {
         linkedin: prospect.linkedin || "",
         phone: "",
         email: "", // Set as blank for manual verification
+        discoveryPersonaId: selectedPersonaId || null,
         createdBy: user?.uid,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -289,6 +354,52 @@ export function FindProspects() {
                   />
                 </div>
               </div>
+
+              {/* Persona Selection */}
+              {personas.length > 0 && (
+                <div className="space-y-2">
+                  <label className="label-mini !text-slate-900 border-indigo-200">Executive Persona Context</label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {personas.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedPersonaId(p.id)}
+                        className={`p-3 rounded-xl border-2 text-left transition-all relative ${
+                          selectedPersonaId === p.id 
+                            ? "border-indigo-600 bg-indigo-50 shadow-neo-sm" 
+                            : "border-slate-100 bg-slate-50 hover:border-slate-300"
+                        }`}
+                      >
+                        <p className={`text-[10px] font-black uppercase truncate ${selectedPersonaId === p.id ? "text-indigo-700" : "text-slate-500"}`}>
+                          {p.name}
+                        </p>
+                        <p className="text-[8px] font-bold text-slate-400 truncate">{p.agentRole}</p>
+                        {selectedPersonaId === p.id && (
+                          <div className="absolute -top-2 -right-2 bg-indigo-600 text-white rounded-full p-0.5 shadow-neo-sm">
+                            <CheckCircle2 className="w-3 h-3" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPersonaId("")}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        selectedPersonaId === "" 
+                          ? "border-indigo-600 bg-indigo-50 shadow-neo-sm" 
+                          : "border-slate-100 bg-slate-50 hover:border-slate-300"
+                      }`}
+                    >
+                      <p className={`text-[10px] font-black uppercase truncate ${selectedPersonaId === "" ? "text-indigo-700" : "text-slate-500"}`}>
+                        Default
+                      </p>
+                      <p className="text-[8px] font-bold text-slate-400 truncate">General Assistant</p>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <button 
                 type="submit" 
                 disabled={loading}
@@ -580,6 +691,12 @@ export function FindProspects() {
                         <span className="text-[8px] font-black text-indigo-400 uppercase">
                           {Array.isArray(record.results) ? record.results.length : 0} Prospects
                         </span>
+                        {record.personaId && personas.find(p => p.id === record.personaId) && (
+                          <span className="text-[8px] font-black text-amber-500 uppercase flex items-center gap-1">
+                            <Sparkles className="w-2 h-2" />
+                            {personas.find(p => p.id === record.personaId).name}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button 

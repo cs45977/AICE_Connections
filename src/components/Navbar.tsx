@@ -1,12 +1,13 @@
 import React from "react";
 import { useAuth } from "../lib/auth";
-import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search, Spade } from "lucide-react";
-import { Link } from "react-router-dom";
+import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search, Spade, Mail, TrendingUp } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 
 export function Navbar() {
   const { user, role, logout } = useAuth();
-  const [configStatus, setConfigStatus] = React.useState<{ geminiKey: boolean, env: string } | null>(null);
-  const buildVersion = "v1.0.45";
+  const location = useLocation();
+  const [configStatus, setConfigStatus] = React.useState<{ geminiKey: boolean, env: string, build?: string } | null>(null);
+  const buildVersion = configStatus?.build || "v1.0.47";
 
   React.useEffect(() => {
     if (role === "admin") {
@@ -18,6 +19,15 @@ export function Navbar() {
   }, [role]);
 
   if (!user) return null;
+
+  const isActive = (path: string) => location.pathname === path;
+  
+  const getNavLinkClass = (path: string, activeClass: string = "bg-indigo-50 text-indigo-700") => {
+    const baseClass = "px-3 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2";
+    return isActive(path) 
+      ? `${baseClass} ${activeClass}` 
+      : `${baseClass} hover:bg-slate-100 text-slate-600`;
+  };
 
   return (
     <nav className="bg-white border-b-2 border-slate-900 sticky top-0 z-50">
@@ -41,13 +51,24 @@ export function Navbar() {
           </Link>
           
           <div className="hidden md:flex items-center gap-2">
-            <Link to="/" className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">Prospects</Link>
-            <Link to="/find-prospects" className="px-3 py-1.5 rounded-lg text-sm font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center gap-2">
-               <Search className="w-4 h-4" /> Discovery
+            <Link to="/" className={getNavLinkClass("/")}>
+               <Users className={`w-4 h-4 ${isActive("/") ? "text-indigo-600" : "text-slate-400"}`} />
+               Prospects
             </Link>
-            <Link to="/contacts" className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">Insights</Link>
+            <Link to="/find-prospects" className={getNavLinkClass("/find-prospects")}>
+               <Search className={`w-4 h-4 ${isActive("/find-prospects") ? "text-indigo-600" : "text-slate-400"}`} /> 
+               Discovery
+            </Link>
+            <Link to="/contacts" className={getNavLinkClass("/contacts")}>
+               <TrendingUp className={`w-4 h-4 ${isActive("/contacts") ? "text-indigo-600" : "text-slate-400"}`} />
+               Insights
+            </Link>
+            <Link to="/unsent-drafts" className={getNavLinkClass("/unsent-drafts", "bg-indigo-50 text-indigo-700 shadow-neo-sm border border-indigo-200")}>
+              <Mail className={`w-4 h-4 ${isActive("/unsent-drafts") ? "text-indigo-700" : "text-indigo-400"}`} />
+              Drafts
+            </Link>
             {role === "admin" && (
-              <Link to="/admin" className="px-3 py-1.5 rounded-lg text-sm font-black text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center gap-2">
+              <Link to="/admin" className={`px-3 py-1.5 rounded-lg text-sm font-black transition-colors flex items-center gap-2 ${isActive("/admin") ? "bg-indigo-100 text-indigo-800" : "text-indigo-600 hover:bg-indigo-50"}`}>
                 <Shield className="w-4 h-4" />
                 Admin
               </Link>

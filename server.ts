@@ -36,13 +36,12 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // Google OAuth URL Generation (for Google Workspace permissions if needed beyond Firebase Auth)
-  // Note: For MVP, Firebase Auth handles SSO. Google Docs might need extra scopes.
+  // Google OAuth URL Generation
   app.get("/api/auth/google-url", (req, res) => {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      `${process.env.APP_URL}/auth/callback`
+      `${process.env.APP_URL}/auth/google/callback`
     );
 
     const scopes = [
@@ -59,18 +58,78 @@ async function startServer() {
     res.json({ url });
   });
 
+  // Google OAuth Callback
+  app.get("/auth/google/callback", async (req, res) => {
+    const { code } = req.query;
+    if (!code) return res.redirect("/profile?error=no_code");
+
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        `${process.env.APP_URL}/auth/google/callback`
+      );
+
+      const { tokens } = await oauth2Client.getToken(code as string);
+      (req.session as any).googleTokens = tokens;
+      
+      // Return a script that notifies the opener and closes the popup
+      res.send(`
+        <html>
+          <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8f9fa;">
+            <div style="text-align: center; padding: 2rem; background: white; border-radius: 1rem; border: 2px solid #0f172a; box-shadow: 4px 4px 0 0 #0f172a;">
+              <h2 style="margin: 0 0 1rem 0; font-weight: 900; text-transform: uppercase; letter-spacing: -0.05em;">Nexus Outreach</h2>
+              <p style="font-weight: 600; color: #64748b;">Workspace connected successfully!</p>
+              <p style="font-size: 0.75rem; color: #94a3b8;">This window will close automatically.</p>
+              <script>
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', provider: 'google' }, '*');
+                  setTimeout(() => window.close(), 1000);
+                } else {
+                  window.location.href = '/profile';
+                }
+              </script>
+            </div>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error("Auth error:", error);
+      res.send(`
+        <html>
+          <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fff1f2;">
+            <div style="text-align: center; padding: 2rem; background: white; border-radius: 1rem; border: 2px solid #991b1b; box-shadow: 4px 4px 0 0 #991b1b;">
+              <h2 style="margin: 0 0 1rem 0; font-weight: 900; text-transform: uppercase; color: #991b1b;">Connection Failed</h2>
+              <p style="font-weight: 600; color: #ef4444;">Failed to connect to Google Workspace.</p>
+              <button onclick="window.close()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #991b1b; color: white; border: none; border-radius: 0.5rem; font-weight: 900; cursor: pointer;">CLOSE WINDOW</button>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+  });
+
   // Export to Google Doc API
   app.post("/api/export-doc", async (req, res) => {
-    // This will take content, contact name, and tokens
-    const { content, contactName, accessToken } = req.body;
+    const { content, contactName } = req.body;
+    const tokens = (req.session as any).googleTokens;
     
-    if (!accessToken) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (!tokens || !tokens.access_token) {
+      return res.status(401).json({ error: "Google Workspace not connected" });
     }
 
     try {
-      const auth = new google.auth.OAuth2();
-      auth.setCredentials({ access_token: accessToken });
+      const auth = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET
+      );
+      auth.setCredentials(tokens);
+      
+      // If access token is expired, refresh it
+      if (tokens.expiry_date && tokens.expiry_date <= Date.now()) {
+        const { credentials } = await auth.refreshAccessToken();
+        (req.session as any).googleTokens = credentials;
+      }
       
       const docs = google.docs({ version: "v1", auth });
       const drive = google.drive({ version: "v3", auth });
@@ -126,8 +185,9 @@ async function startServer() {
     res.json({
       geminiKey: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY),
       googleAuth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      googleConnected: !!((req.session as any).googleTokens?.access_token),
       env: process.env.NODE_ENV || "development",
-      build: "v1.0.45",
+      build: "v1.0.47",
       port: PORT,
       availableKeys: envKeys.filter(k => /API|KEY|GEMINI|GOOGLE/i.test(k)),
       allKeysCount: envKeys.length
