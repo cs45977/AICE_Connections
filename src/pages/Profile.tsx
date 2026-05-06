@@ -102,24 +102,41 @@ export function Profile() {
           const standardAgentSnap = await getDoc(standardAgentRef);
 
           if (!standardAgentSnap.exists()) {
-            await setDoc(standardAgentRef, {
-              name: "Standard Agent",
-              agentName: user.displayName || "Google Cloud Expert",
-              agentRole: "Google Customer Engineer",
-              agentEmail: user.email || "",
-              description: "Default persona for technical sales outreach and research.",
-              customPrompts: {
-                research: "",
-                outreach: ""
-              },
-              isDefault: true,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            });
-            toast.info("Standard persona created");
+            try {
+              await setDoc(standardAgentRef, {
+                name: "Standard Agent",
+                agentName: user.displayName || "Google Cloud Expert",
+                agentRole: "Google Customer Engineer",
+                agentEmail: user.email || "",
+                description: "Default persona for technical sales outreach and research.",
+                customPrompts: {
+                  research: "",
+                  outreach: ""
+                },
+                isDefault: true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              });
+              toast.info("Standard persona created");
+            } catch (err) {
+              console.error("Failed to set standard agent persona", err);
+              // If this fails, we might still want to proceed to mark seeded if it was permissions on subcollection
+            }
           }
           
-          await setDoc(userRef, { hasSeededStandardAgent: true }, { merge: true });
+          if (userSnap.exists()) {
+            await updateDoc(userRef, { hasSeededStandardAgent: true });
+          } else {
+            // User doc missing - initialize it properly to satisfy isValidUser on create
+            await setDoc(userRef, {
+              uid: user.uid,
+              email: user.email || "",
+              displayName: user.displayName || "",
+              role: "user",
+              createdAt: new Date().toISOString(),
+              hasSeededStandardAgent: true
+            });
+          }
         }
       } catch (e) {
         console.error("Failed to seed persona", e);
