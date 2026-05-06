@@ -1,28 +1,24 @@
 import { toast } from "sonner";
 import { db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { GoogleGenAI, Type } from "@google/genai";
 
-async function callGeminiProxy(contents: string, config?: any) {
-  const response = await fetch("/api/gemini/generate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      contents,
-      config,
-    }),
-  });
+// Initialize Gemini on the client
+// AI Studio injects GEMINI_API_KEY into the environment
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    const err = new Error(errorData.error || "Gemini request failed");
-    (err as any).type = errorData.type;
-    (err as any).status = response.status;
-    throw err;
+async function callGemini(model: string, prompt: string, config?: any) {
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config
+    });
+    return response;
+  } catch (error: any) {
+    console.error("Gemini Error:", error);
+    throw error;
   }
-
-  return await response.json();
 }
 
 const DEFAULT_PROMPTS = {
@@ -91,33 +87,44 @@ function replaceVariables(template: string, variables: Record<string, string>) {
   return result;
 }
 
-export async function researchContact(contact: { name: string, email: string, role: string, company: string }) {
-  const template = await getPromptTemplate("researchContact");
-  const prompt = replaceVariables(template, {
+export interface PersonaContext {
+  agentName?: string;
+  agentRole?: string;
+  agentEmail?: string;
+}
+
+export async function researchContact(contact: { name: string, email: string, role: string, company: string }, promptOverride?: string, persona?: PersonaContext) {
+  const template = promptOverride || await getPromptTemplate("researchContact");
+  
+  let contextInfo = "";
+  if (persona) {
+    contextInfo = `\nContext: You are ${persona.agentName || "an AI Assistant"} working as ${persona.agentRole || "a Technical Researcher"}. ${persona.agentEmail ? `Your email for business context is: ${persona.agentEmail}` : ""}\n`;
+  }
+
+  const prompt = contextInfo + replaceVariables(template, {
     name: contact.name,
     email: contact.email,
     role: contact.role,
-    company: contact.company
+    company: contact.company || "their company"
   });
 
   try {
-    const response = await callGeminiProxy(prompt, {
+    const response = await callGemini("gemini-3-flash-preview", prompt, {
       tools: [{ googleSearch: {} }],
       toolConfig: { includeServerSideToolInvocations: true }
     });
     return response.text;
   } catch (error: any) {
     const errData = String(error);
-    const isForbidden = error.type === "FORBIDDEN" || errData.toLowerCase().includes("forbidden") || errData.toLowerCase().includes("403");
+    const isForbidden = errData.toLowerCase().includes("forbidden") || errData.toLowerCase().includes("403");
     
     if (isForbidden && window.location.hostname !== "localhost") {
        toast.error("Agent Connection Blocked: Your domain might not be authorized or Grounding is restricted. Falling back to non-grounded search.");
     }
 
-    const isRateLimit = error.type === "QUOTA_EXCEEDED" ||
-                        errData.includes("429") || 
+    const isRateLimit = errData.includes("429") || 
                         errData.includes("RESOURCE_EXHAUSTED") || 
-                        errData.includes("prepayment credits") ||
+                        errData.includes("quota") ||
                         error?.status === 429;
                          
     if (isRateLimit) {
@@ -132,7 +139,7 @@ export async function researchContact(contact: { name: string, email: string, ro
         }
       );
       try {
-        const retryResponse = await callGeminiProxy(prompt);
+        const retryResponse = await callGemini("gemini-3-flash-preview", prompt);
         return retryResponse.text;
       } catch (retryErr) {
         return "Search failed due to billing limits. Please check your Google Gemini API billing.";
@@ -142,18 +149,24 @@ export async function researchContact(contact: { name: string, email: string, ro
   }
 }
 
-export async function generateEmail(subject: string, researchSummary: string, contact: { name: string, role: string, company: string }) {
-  const template = await getPromptTemplate("generateEmail");
-  const prompt = replaceVariables(template, {
+export async function generateEmail(subject: string, researchSummary: string, contact: { name: string, role: string, company: string }, promptOverride?: string, persona?: PersonaContext) {
+  const template = promptOverride || await getPromptTemplate("generateEmail");
+  
+  let contextInfo = "";
+  if (persona) {
+    contextInfo = `\nContext: You are writing this email as ${persona.agentName || "an AI Assistant"}. Your role is ${persona.agentRole || "a Sales Representative"}. Your signature should reflect this. ${persona.agentEmail ? `Reply-to/Your Email: ${persona.agentEmail}` : ""}\n`;
+  }
+
+  const prompt = contextInfo + replaceVariables(template, {
     subject,
     name: contact.name,
     role: contact.role,
-    company: contact.company,
+    company: contact.company || "their company",
     researchSummary
   });
 
   try {
-    const response = await callGeminiProxy(prompt, {
+    const response = await callGemini("gemini-3-flash-preview", prompt, {
       tools: [{ googleSearch: {} }],
       toolConfig: { includeServerSideToolInvocations: true }
     });
@@ -161,10 +174,9 @@ export async function generateEmail(subject: string, researchSummary: string, co
     return response.text;
   } catch (error: any) {
     const errData = String(error);
-    const isRateLimit = error.type === "QUOTA_EXCEEDED" ||
-                        errData.includes("429") || 
+    const isRateLimit = errData.includes("429") || 
                         errData.includes("RESOURCE_EXHAUSTED") || 
-                        errData.includes("prepayment credits") ||
+                        errData.includes("quota") ||
                         error?.status === 429;
                         
     if (isRateLimit) {
@@ -179,13 +191,41 @@ export async function generateEmail(subject: string, researchSummary: string, co
         }
       );
       try {
-        const retryResponse = await callGeminiProxy(prompt);
+        const retryResponse = await callGemini("gemini-3-flash-preview", prompt);
         return retryResponse.text;
       } catch (retryErr) {
         return "Email generation failed due to billing limits. Please check your Google Gemini API billing.";
       }
     }
     throw error;
+  }
+}
+
+export async function generateSuggestedGoals(contact: { name: string, role: string, company: string }, researchSummary: string) {
+  const prompt = `Based on the following research summary for ${contact.name} (${contact.role} at ${contact.company}), provide 3-5 concise, highly effective outreach goals or themes for a sales personalized email (e.g., "Discuss recent cloud migration strategy", "Congratulate on series B and offer infrastructure scaling audit").
+  
+  Research:
+  ${researchSummary}
+  
+  Provide exactly a JSON array of strings.`;
+
+  try {
+    const schema = {
+      type: Type.ARRAY,
+      items: { type: Type.STRING }
+    };
+    const response = await callGemini("gemini-3-flash-preview", prompt, {
+      responseMimeType: "application/json",
+      responseSchema: schema
+    });
+    return JSON.parse(response.text);
+  } catch (error) {
+    console.error("Failed to generate suggested goals", error);
+    return [
+      "Schedule technical overview",
+      "Discuss product partnership",
+      "Executive introduction"
+    ];
   }
 }
 
@@ -196,7 +236,7 @@ export async function generateDiscoveryQuestions(company: { name: string, url: s
     companyUrl: company.url
   });
 
-  const response = await callGeminiProxy(prompt);
+  const response = await callGemini("gemini-3-flash-preview", prompt);
   return response.text;
 }
 
@@ -209,19 +249,19 @@ export async function searchProspects(company: { name: string, url: string }, se
   });
 
   const schema = {
-    type: "object",
+    type: Type.OBJECT,
     properties: {
       prospects: {
-        type: "array",
+        type: Type.ARRAY,
         items: {
-          type: "object",
+          type: Type.OBJECT,
           properties: {
-            name: { type: "string" },
-            title: { type: "string" },
-            department: { type: "string" },
-            linkedin: { type: "string", nullable: true },
-            source: { type: "string", nullable: true },
-            insight: { type: "string" }
+            name: { type: Type.STRING },
+            title: { type: Type.STRING },
+            department: { type: Type.STRING },
+            linkedin: { type: Type.STRING, nullable: true },
+            source: { type: Type.STRING, nullable: true },
+            insight: { type: Type.STRING }
           },
           required: ["name", "title", "department", "insight"]
         }
@@ -231,7 +271,7 @@ export async function searchProspects(company: { name: string, url: string }, se
   };
 
   try {
-    const response = await callGeminiProxy(prompt, {
+    const response = await callGemini("gemini-3-flash-preview", prompt, {
       tools: [{ googleSearch: {} }],
       toolConfig: { includeServerSideToolInvocations: true },
       responseMimeType: "application/json",
@@ -246,7 +286,7 @@ export async function searchProspects(company: { name: string, url: string }, se
     }
     
     try {
-      const response = await callGeminiProxy(prompt, {
+      const response = await callGemini("gemini-3-flash-preview", prompt, {
         responseMimeType: "application/json",
         responseSchema: schema
       });

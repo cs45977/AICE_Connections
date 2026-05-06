@@ -1,12 +1,12 @@
 import React from "react";
 import { useAuth } from "../lib/auth";
-import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search } from "lucide-react";
+import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search, Spade } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export function Navbar() {
   const { user, role, logout } = useAuth();
   const [configStatus, setConfigStatus] = React.useState<{ geminiKey: boolean, env: string } | null>(null);
-  const buildVersion = "v1.0.43";
+  const buildVersion = "v1.0.45";
 
   React.useEffect(() => {
     if (role === "admin") {
@@ -34,8 +34,10 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center text-white font-black shadow-neo-sm transform group-hover:-rotate-3 transition-transform">A</div>
-            <span className="font-black text-xl tracking-tighter uppercase">AICE<span className="text-indigo-600"> Connections</span></span>
+            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center text-white font-black shadow-neo-sm transform group-hover:-rotate-3 transition-transform">
+              <Spade className="w-5 h-5 fill-current" />
+            </div>
+            <span className="font-black text-xl tracking-tighter uppercase">AI<span className="text-indigo-600">-</span>CE</span>
           </Link>
           
           <div className="hidden md:flex items-center gap-2">
@@ -54,13 +56,15 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-3 pr-4 border-r border-slate-200">
+          <Link to="/profile" className="hidden sm:flex items-center gap-3 pr-4 border-r border-slate-200 group">
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1">Authenticated as</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1 group-hover:text-indigo-600 transition-colors">Authenticated as</p>
               <p className="text-xs font-bold truncate max-w-[150px]">{user.email}</p>
             </div>
-            <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-slate-900"></div>
-          </div>
+            <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-slate-900 overflow-hidden flex items-center justify-center group-hover:border-indigo-600 transition-colors">
+              <UserIcon className="w-4 h-4 text-slate-600" />
+            </div>
+          </Link>
           <button 
             onClick={logout} 
             className="neo-button-outline !px-3 !py-1 text-xs uppercase tracking-widest flex items-center gap-2"

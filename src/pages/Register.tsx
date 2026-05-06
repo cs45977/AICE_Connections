@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useAuth } from "../lib/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { UserPlus, Mail, Lock, User as UserIcon, Loader2 } from "lucide-react";
+import { UserPlus, Mail, Lock, User as UserIcon, Loader2, Spade } from "lucide-react";
 import { toast } from "sonner";
 
 export function Register() {
@@ -39,7 +39,9 @@ export function Register() {
         className="max-w-md w-full neo-card !p-12 relative z-10"
       >
         <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white text-3xl font-black mb-6 shadow-neo transform rotate-3">R</div>
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white mb-6 shadow-neo transform rotate-3">
+            <Spade className="w-8 h-8 fill-current" />
+          </div>
           <h1 className="text-3xl font-black tracking-tighter uppercase mb-2">Initialize Account</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Join the Intelligence Network</p>
         </div>

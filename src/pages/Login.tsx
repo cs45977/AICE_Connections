@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../lib/auth";
-import { Mail, Lock, LogIn, Loader2, ShieldCheck } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { Mail, Lock, LogIn, Loader2, Spade } from "lucide-react";
+import { motion } from "motion/react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -22,9 +22,7 @@ export function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      // Use recovery password for admin if field is empty
-      const loginPassword = (isAdminEmail && !password) ? "test1234" : password;
-      await signIn(email, loginPassword);
+      await signIn(email, password);
       toast.success("Welcome back!");
       navigate("/");
     } catch (error: any) {
@@ -34,8 +32,6 @@ export function Login() {
       setLoading(false);
     }
   };
-
-  const isAdminEmail = email.toLowerCase() === "cs45977@gmail.com";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F1F5F9] p-6 relative overflow-hidden">
@@ -48,8 +44,10 @@ export function Login() {
         className="max-w-md w-full neo-card !p-12 relative z-10"
       >
         <div className="text-center mb-10">
-          <div className="w-20 h-20 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white text-4xl font-black mb-6 shadow-neo transform rotate-3">A</div>
-          <h1 className="text-4xl font-black tracking-tighter uppercase mb-2">AICE<span className="text-indigo-600"> Connections</span></h1>
+          <div className="w-20 h-20 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white mb-6 shadow-neo transform rotate-3">
+            <Spade className="w-10 h-10 fill-current" />
+          </div>
+          <h1 className="text-4xl font-black tracking-tighter uppercase mb-2">AI<span className="text-indigo-600">-</span>CE</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Next-Gen Sales Intelligence</p>
         </div>
 
@@ -95,45 +93,9 @@ export function Login() {
               className="neo-button-primary w-full h-14 rounded-xl flex items-center justify-center gap-3 text-sm uppercase tracking-widest disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
-              {isAdminEmail && !password ? "Secure Login" : "Authenticate"}
+              Authenticate
             </button>
           </form>
-
-          <AnimatePresence>
-            {isAdminEmail && (
-              <motion.div 
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="p-4 bg-indigo-50 border-2 border-indigo-200 rounded-xl mt-4">
-                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Admin Recovery Detected</p>
-                  <button 
-                    type="button"
-                    disabled={loading}
-                    onClick={async () => {
-                      setLoading(true);
-                      try {
-                        await signIn(email, "test1234");
-                        toast.success("Admin access granted");
-                        navigate("/");
-                      } catch (e) {
-                        toast.error("Auth bypass failed");
-                      } finally {
-                        setLoading(false);
-                      }
-                    }}
-                    className="w-full h-12 bg-indigo-600 text-white rounded-lg flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-neo-sm disabled:opacity-50"
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    One-Click Bypass
-                  </button>
-                  <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase text-center italic">Try password 'test1234' automatically</p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
         
         <div className="mt-10 pt-8 border-t-2 border-dashed border-slate-100 text-center">

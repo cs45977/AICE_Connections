@@ -6,7 +6,6 @@ import session from "express-session";
 import cookieParser from "cookie-parser";
 import { google } from "googleapis";
 import * as dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -15,7 +14,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
   app.use(cookieParser());
@@ -109,75 +108,29 @@ async function startServer() {
     }
   });
 
-  // Gemini Proxy
-  app.post("/api/gemini/generate", async (req, res) => {
-    const { model, contents, config } = req.body;
-    
-    try {
-      // Platform provides GEMINI_API_KEY. Fallback to GOOGLE_API_KEY or generic API_KEY if needed.
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
-      
-      if (!apiKey) {
-        const msg = "Gemini API key is not configured in the server environment. Please check your AI Studio secrets (ensure GEMINI_API_KEY is set).";
-        console.error("CRITICAL: " + msg);
-        console.log("Current ENV keys related to AI:", Object.keys(process.env).filter(k => /API|KEY|GEMINI|GOOGLE/i.test(k)));
-        return res.status(500).json({ error: msg });
-      }
-      
-      const client = new GoogleGenAI({ apiKey });
-      
-      console.log(`[Gemini Proxy] Requesting model: ${model || "gemini-3-flash-preview"} (Grounded: ${!!config?.tools})`);
-
-      // The @google/genai SDK uses client.models.generateContent
-      const result = await client.models.generateContent({
-        model: model || "gemini-3-flash-preview",
-        contents: typeof contents === 'string' ? [{ role: 'user', parts: [{ text: contents }] }] : contents,
-        ...config
-      });
-      
-      res.json({ text: result.text });
-    } catch (error: any) {
-      console.error("Gemini Server Error:", error);
-      
-      // Categorize the error for the client
-      let statusCode = error.status || 500;
-      let errorType = "SERVER_ERROR";
-      
-      const errString = String(error).toLowerCase();
-      if (errString.includes("429") || errString.includes("resource_exhausted") || errString.includes("quota")) {
-        statusCode = 429;
-        errorType = "QUOTA_EXCEEDED";
-      } else if (errString.includes("403") || errString.includes("forbidden") || errString.includes("permission_denied")) {
-        statusCode = 403;
-        errorType = "FORBIDDEN";
-      }
-
-      res.status(statusCode).json({ 
-        error: error.message || "An error occurred with the Gemini API",
-        type: errorType,
-        details: typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error)
-      });
-    }
-  });
-
   // Log API Key status on startup
   const envKeys = Object.keys(process.env);
   const foundKeys = envKeys.filter(k => /API|KEY|GEMINI|GOOGLE/i.test(k));
   const hasGemini = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY);
   
   console.log("-----------------------------------------");
-  console.log(`[Status] Build: v1.0.43`);
+  console.log(`[Status] Build: v1.0.44`);
   console.log(`[Status] Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`[Status] Port: ${PORT}`);
   console.log(`[Status] Gemini API Key: ${hasGemini ? "CONFIGURED" : "MISSING"}`);
   console.log(`[Status] Related ENV keys present: ${foundKeys.join(", ") || "None"}`);
   console.log("-----------------------------------------");
 
   app.get("/api/config/status", (req, res) => {
+    const envKeys = Object.keys(process.env);
     res.json({
       geminiKey: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY),
       googleAuth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
       env: process.env.NODE_ENV || "development",
-      build: "v1.0.42"
+      build: "v1.0.45",
+      port: PORT,
+      availableKeys: envKeys.filter(k => /API|KEY|GEMINI|GOOGLE/i.test(k)),
+      allKeysCount: envKeys.length
     });
   });
 

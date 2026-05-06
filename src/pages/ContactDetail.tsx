@@ -1,6 +1,18 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, onSnapshot, query, orderBy, addDoc, updateDoc, Timestamp, where } from "firebase/firestore";
+import { 
+  doc, 
+  getDoc, 
+  collection, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc,
+  Timestamp, 
+  where 
+} from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { useAuth } from "../lib/auth";
 import { handleFirestoreError, OperationType } from "../lib/firestore-errors";
@@ -18,7 +30,12 @@ import {
   Loader2,
   Plus,
   Linkedin,
-  Phone
+  Phone,
+  ChevronDown,
+  StickyNote,
+  MessageSquare,
+  Terminal,
+  Trash2
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
@@ -49,6 +66,17 @@ export function ContactDetail() {
   
   const [campaignSubject, setCampaignSubject] = useState("");
   const [generatedDraft, setGeneratedDraft] = useState("");
+
+  const [notes, setNotes] = useState<any[]>([]);
+  const [newNote, setNewNote] = useState("");
+  const [noteLoading, setNoteLoading] = useState(false);
+
+  const [personas, setPersonas] = useState<any[]>([]);
+  const [selectedPersona, setSelectedPersona] = useState<any>(null);
+  const [suggestedGoals, setSuggestedGoals] = useState<string[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+
+  const [activeTab, setActiveTab] = useState("research");
 
   useEffect(() => {
     if (!id) return;
@@ -83,17 +111,70 @@ export function ContactDetail() {
       handleFirestoreError(error, OperationType.LIST, `contacts/${id}/outreach`);
     });
 
+    const notesQuery = query(
+      collection(db, "contacts", id, "notes"),
+      orderBy("createdAt", "desc")
+    );
+    const unsubNotes = onSnapshot(notesQuery, (snap) => {
+      setNotes(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `contacts/${id}/notes`);
+    });
+
+    if (user) {
+      const personasQuery = query(collection(db, "users", user.uid, "personas"), orderBy("createdAt", "desc"));
+      const unsubPersonas = onSnapshot(personasQuery, (snap) => {
+        const userPersonas = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        setPersonas(userPersonas);
+        const defaultP = userPersonas.find(p => p.isDefault);
+        if (defaultP) setSelectedPersona(defaultP);
+      });
+      return () => {
+        unsubContact();
+        unsubOutreach();
+        unsubNotes();
+        unsubPersonas();
+      };
+    }
+
     return () => {
       unsubContact();
       unsubOutreach();
+      unsubNotes();
     };
-  }, [id]);
+  }, [id, user]);
+
+  useEffect(() => {
+    if (contact?.researchSummary && suggestedGoals.length === 0 && !goalsLoading) {
+      loadSuggestedGoals();
+    }
+  }, [contact?.researchSummary]);
+
+  const loadSuggestedGoals = async () => {
+    if (!contact?.researchSummary) return;
+    setGoalsLoading(true);
+    try {
+      const goals = await import("../lib/gemini").then(m => m.generateSuggestedGoals(contact, contact.researchSummary));
+      setSuggestedGoals(goals);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setGoalsLoading(false);
+    }
+  };
 
   const handleResearch = async () => {
     if (!contact) return;
     setResearchLoading(true);
     try {
-      const summary = await researchContact(contact);
+      const promptOverride = selectedPersona?.customPrompts?.research;
+      const personaContext = selectedPersona ? {
+        agentName: selectedPersona.agentName,
+        agentRole: selectedPersona.agentRole,
+        agentEmail: selectedPersona.agentEmail
+      } : undefined;
+      
+      const summary = await researchContact(contact, promptOverride, personaContext);
       const contactRef = doc(db, "contacts", id!);
       await updateDoc(contactRef, {
         researchSummary: summary,
@@ -115,7 +196,14 @@ export function ContactDetail() {
     }
     setGenLoading(true);
     try {
-      const draft = await generateEmail(campaignSubject, contact.researchSummary || "No research findings yet.", contact);
+      const promptOverride = selectedPersona?.customPrompts?.outreach;
+      const personaContext = selectedPersona ? {
+        agentName: selectedPersona.agentName,
+        agentRole: selectedPersona.agentRole,
+        agentEmail: selectedPersona.agentEmail
+      } : undefined;
+
+      const draft = await generateEmail(campaignSubject, contact.researchSummary || "No research findings yet.", contact, promptOverride, personaContext);
       setGeneratedDraft(draft);
       toast.success("Email draft generated!");
     } catch (error) {
@@ -124,6 +212,33 @@ export function ContactDetail() {
     } finally {
       setGenLoading(false);
     }
+  };
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNote.trim() || !id || !user) return;
+    setNoteLoading(true);
+    try {
+      const noteRef = collection(db, "contacts", id, "notes");
+      await addDoc(noteRef, {
+        contactId: id,
+        text: newNote,
+        createdBy: user.uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      setNewNote("");
+      toast.success("Note added");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `contacts/${id}/notes`);
+    } finally {
+      setNoteLoading(false);
+    }
+  };
+
+  const scrollToSection = (id: string) => {
+    setActiveTab(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const handleExport = async () => {
@@ -202,14 +317,26 @@ export function ContactDetail() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6">
-      <div className="mb-4">
+      <div className="mb-6">
         <Link to="/" className="flex items-center gap-2 group text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-colors">
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
           Return to Pipeline
         </Link>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col lg:flex-row gap-8 items-start">
+        {/* Left Vertical Sub-navigation - Compact with Hover Expansion */}
+        <aside className="w-14 lg:sticky lg:top-24 z-50 shrink-0 group h-auto">
+          <div className="flex flex-col gap-1 p-1 bg-white border-2 border-slate-900 rounded-xl shadow-neo-sm overflow-hidden transition-all duration-300 w-12 group-hover:w-44 absolute lg:relative bg-white">
+            <NavTab vertical active={activeTab === 'research'} onClick={() => scrollToSection('research')} icon={<Sparkles className="w-4 h-4 shrink-0" />} label="Research" />
+            <NavTab vertical active={activeTab === 'ai-engine'} onClick={() => scrollToSection('ai-engine')} icon={<Terminal className="w-4 h-4 shrink-0" />} label="AI Engine" />
+            <NavTab vertical active={activeTab === 'notes'} onClick={() => scrollToSection('notes')} icon={<StickyNote className="w-4 h-4 shrink-0" />} label="Notes" />
+            <NavTab vertical active={activeTab === 'history'} onClick={() => scrollToSection('history')} icon={<History className="w-4 h-4 shrink-0" />} label="History" />
+          </div>
+        </aside>
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col gap-3 w-full">
         {/* Profile / Header Area */}
         <header className="neo-card border-b-4 border-slate-900 shadow-none overflow-hidden !p-0">
           <AnimatePresence mode="wait">
@@ -372,7 +499,7 @@ export function ContactDetail() {
         </header>
 
         {/* Research Agent Findings - Full Width & Expandable */}
-        <section className="neo-card relative overflow-hidden bg-white">
+        <section id="research" className="neo-card relative overflow-hidden bg-white scroll-mt-24">
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 -translate-y-16 translate-x-16 rounded-full blur-2xl"></div>
           
           <div className="flex justify-between items-center mb-4 relative z-10">
@@ -441,20 +568,64 @@ export function ContactDetail() {
 
         <div className="grid grid-cols-12 gap-3">
           {/* AI Generation Box */}
-          <section className="col-span-12 lg:col-span-8 neo-card !p-0 flex flex-col overflow-hidden">
+          <section id="ai-engine" className="col-span-12 lg:col-span-8 neo-card !p-0 flex flex-col overflow-hidden scroll-mt-24">
             <div className="p-4 border-b-2 border-slate-900 bg-slate-50 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <span className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1 rounded shadow-neo-sm">AI Engine</span>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter italic">Persona: Google Customer Engineer</span>
+                
+                <div className="relative persona-selector">
+                  <select 
+                    className="appearance-none bg-indigo-50 text-indigo-700 text-[10px] font-bold px-3 py-1 pr-6 rounded uppercase tracking-tighter outline-none cursor-pointer hover:bg-indigo-100 transition-colors"
+                    value={selectedPersona?.id || ""}
+                    onChange={(e) => {
+                      const p = personas.find(p => p.id === e.target.value);
+                      setSelectedPersona(p || null);
+                    }}
+                  >
+                    <option value="">Default: Google Customer Engineer</option>
+                    {personas.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3 h-3 text-indigo-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+
+                {selectedPersona && (
+                  <div className="flex items-center gap-1.5 p-1 bg-white border border-indigo-100 rounded text-[8px] font-black uppercase text-indigo-400 tracking-tighter">
+                    <CheckCircle2 className="w-2.5 h-2.5" />
+                    Custom Prompts Active
+                  </div>
+                )}
               </div>
               {genLoading && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}
             </div>
 
             <div className="p-8 flex-1 flex flex-col gap-6">
               <div className="space-y-3">
-                <label className="label-mini flex items-center gap-2">
-                  Outreach Goal / Theme
-                </label>
+                <div className="flex justify-between items-center">
+                  <label className="label-mini flex items-center gap-2">
+                    Outreach Goal / Theme
+                  </label>
+                  {suggestedGoals.length > 0 && (
+                    <span className="text-[9px] font-black uppercase text-slate-300 tracking-widest">Suggested Goals</span>
+                  )}
+                </div>
+
+                {/* Suggested Goals chips */}
+                {suggestedGoals.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {suggestedGoals.map((goal, idx) => (
+                      <button 
+                        key={idx}
+                        onClick={() => setCampaignSubject(goal)}
+                        className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded text-[9px] font-bold text-slate-500 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 transition-all uppercase tracking-tight"
+                      >
+                        {goal}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div className="relative group">
                   <input 
                     type="text" 
@@ -517,14 +688,76 @@ export function ContactDetail() {
           </section>
 
           <div className="col-span-12 lg:col-span-4 flex flex-col gap-3">
+            {/* Notes Section */}
+            <section id="notes" className="neo-card scroll-mt-24 h-[400px] flex flex-col !p-0 overflow-hidden">
+               <div className="p-4 bg-white border-b-2 border-slate-900 flex items-center justify-between">
+                  <h2 className="label-mini flex items-center gap-2">
+                    <StickyNote className="w-4 h-4" />
+                    Internal Notes
+                  </h2>
+                  <span className="text-[9px] font-black uppercase text-slate-300">{notes.length} logs</span>
+               </div>
+               
+               <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                  {notes.map((note) => (
+                    <div key={note.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl relative group">
+                       <p className="text-xs font-bold text-slate-700 leading-relaxed mb-2 whitespace-pre-wrap">{note.text}</p>
+                       <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                          <span className="text-[8px] font-black uppercase text-slate-400">{new Date(note.createdAt).toLocaleDateString()} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <button 
+                            onClick={async () => {
+                              if (window.confirm("Delete note?")) {
+                                try {
+                                  await deleteDoc(doc(db, "contacts", id!, "notes", note.id));
+                                  toast.success("Note deleted");
+                                } catch (e) {
+                                  toast.error("Failed to delete note");
+                                }
+                              }
+                            }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-50 hover:text-red-500 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                       </div>
+                    </div>
+                  ))}
+                  {notes.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-xs py-10">
+                      <MessageSquare className="w-6 h-6 mb-2" />
+                      No notes yet
+                    </div>
+                  )}
+               </div>
+
+               <div className="p-4 bg-slate-50 border-t-2 border-slate-900">
+                  <form onSubmit={handleAddNote} className="relative">
+                    <textarea 
+                      placeholder="Add a new note..."
+                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:border-slate-900 transition-all min-h-[60px] pr-10"
+                      value={newNote}
+                      onChange={e => setNewNote(e.target.value)}
+                    />
+                    <button 
+                      type="submit"
+                      disabled={noteLoading || !newNote.trim()}
+                      className="absolute right-2 bottom-2 p-1.5 bg-slate-900 text-white rounded-lg hover:bg-indigo-600 transition-all shadow-neo-sm disabled:opacity-50"
+                    >
+                      {noteLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    </button>
+                  </form>
+               </div>
+            </section>
+
             {/* History Log */}
-            <section className="neo-card relative overflow-hidden group flex-1">
-              <div className="absolute bottom-0 right-0 w-24 h-24 bg-slate-50/50 -translate-x-4 translate-y-4 rounded-full border border-slate-100 group-hover:scale-110 transition-transform"></div>
-              <h2 className="label-mini mb-6 flex items-center gap-2">
-                <History className="w-4 h-4" />
-                Outreach History
-              </h2>
-              <div className="space-y-4 relative z-10 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+            <section id="history" className="neo-card relative overflow-hidden group h-[300px] flex flex-col scroll-mt-24 !p-0">
+               <div className="p-4 bg-white border-b-2 border-slate-900">
+                  <h2 className="label-mini flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    Outreach History
+                  </h2>
+               </div>
+              <div className="space-y-4 relative z-10 overflow-y-auto p-4 flex-1 custom-scrollbar">
                 {outreach.map((log) => (
                   <div key={log.id} className="flex gap-4 items-start pb-4 border-b border-slate-100 last:border-0 last:pb-0">
                     <div className="w-8 h-8 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center flex-shrink-0">
@@ -565,5 +798,26 @@ export function ContactDetail() {
         </div>
       </div>
     </div>
+  </div>
+  );
+}
+
+function NavTab({ active, onClick, icon, label, vertical = false }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, vertical?: boolean }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+        vertical ? "w-full justify-start overflow-hidden" : "whitespace-nowrap"
+      } ${
+        active 
+        ? "bg-slate-900 text-white shadow-neo-sm" 
+        : "text-slate-400 hover:bg-slate-50 hover:text-slate-900"
+      }`}
+    >
+      {icon}
+      <span className={`transition-opacity duration-300 ${vertical ? "opacity-0 group-hover:opacity-100 whitespace-nowrap" : ""}`}>
+        {label}
+      </span>
+    </button>
   );
 }

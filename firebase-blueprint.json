@@ -72,12 +72,51 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "template", "updatedAt"]
+    },
+    "Note": {
+      "title": "Contact Note",
+      "description": "User notes about a specific contact.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "contactId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "createdBy", "contactId", "createdAt", "updatedAt"]
+    },
+    "Persona": {
+      "title": "AI Persona",
+      "description": "Custom AI persona for a user.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "agentName": { "type": "string" },
+        "agentRole": { "type": "string" },
+        "agentEmail": { "type": "string" },
+        "description": { "type": "string" },
+        "customPrompts": {
+          "type": "object",
+          "properties": {
+            "research": { "type": "string" },
+            "outreach": { "type": "string" }
+          }
+        },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles indexed by UID."
+    },
+    "/users/{userId}/personas/{personaId}": {
+      "schema": "Persona",
+      "description": "Custom personas for a specific user."
     },
     "/contacts/{contactId}": {
       "schema": "Contact",
@@ -86,6 +125,10 @@
     "/contacts/{contactId}/outreach/{outreachId}": {
       "schema": "Outreach",
       "description": "Outreach logs for a specific contact."
+    },
+    "/contacts/{contactId}/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Notes for a specific contact."
     },
     "/discoveries/{discoveryId}": {
       "schema": "ProspectDiscovery",

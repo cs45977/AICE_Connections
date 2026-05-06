@@ -6,6 +6,7 @@ import { ContactDetail } from "./pages/ContactDetail";
 import { NewContact } from "./pages/NewContact";
 import { FindProspects } from "./pages/FindProspects";
 import { Admin } from "./pages/Admin";
+import { Profile } from "./pages/Profile";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ForgotPassword } from "./pages/ForgotPassword";
@@ -108,6 +109,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ContactDetail />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/profile" 
+            element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             } 
           />

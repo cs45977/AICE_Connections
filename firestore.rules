@@ -40,10 +40,25 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming());
       allow update: if isSignedIn() && (
-        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName']) && incoming().displayName is string && incoming().displayName.size() <= 100) ||
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'profileUpdated']) && (incoming().displayName is string || !incoming().keys().contains('displayName'))) ||
         (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role']))
       );
       allow delete: if isAdmin();
+
+      // --- 1.1 Personas (Subcollection) ---
+      match /personas/{personaId} {
+        function isValidPersona(data) {
+          return data.name is string && data.name.size() <= 100 &&
+                 (!data.keys().contains('agentName') || data.agentName is string) &&
+                 (!data.keys().contains('agentRole') || data.agentRole is string) &&
+                 (!data.keys().contains('agentEmail') || data.agentEmail is string) &&
+                 data.createdAt is string;
+        }
+        allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(personaId) && isValidPersona(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidPersona(incoming());
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // --- 2. Contacts ---
@@ -59,12 +74,25 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming());
       allow update: if isSignedIn() && (
         // Action: Update details
-        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company']) && isValidContact(incoming())) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company', 'phone']) && isValidContact(incoming())) ||
         // Action: AI Research Update
         (incoming().diff(existing()).affectedKeys().hasOnly(['researchSummary', 'updatedAt']) && incoming().updatedAt is string) ||
         isAdmin()
       );
       allow delete: if isAdmin();
+
+      // --- 2.1 Notes (Subcollection) ---
+      match /notes/{noteId} {
+        function isValidNote(data) {
+          return data.contactId == contactId &&
+                 data.createdBy == request.auth.uid &&
+                 data.text is string && data.text.size() <= 10000;
+        }
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(noteId) && isValidNote(incoming());
+        allow update: if isSignedIn() && request.auth.uid == resource.data.createdBy && isValidNote(incoming());
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.createdBy || isAdmin());
+      }
 
       // --- 3. Outreach Logs (Subcollection) ---
       match /outreach/{outreachId} {
