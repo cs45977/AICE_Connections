@@ -79,7 +79,15 @@ const DEFAULT_PROMPTS = {
   - source: A URL to the source of this information or the company website profile if found, or null
   - insight: A brief 1-sentence insight on why they match the criteria
   
-  At the end, state that contact emails should be verified independently.`
+  At the end, state that contact emails should be verified independently.`,
+  generateCompanyIntelligence: `Analyze {{companyName}} ({{companyUrl}}) and provide a high-level strategic intelligence report.
+  Focus on:
+  1. Core Business Model & Revenue Drivers
+  2. Recent Growth Signals, Funding, or Major Strategic Shifts
+  3. Key Technology Stack or Operational Challenges (Inferred or Researched)
+  4. Strategic Alignment: Why this company is a prime target for {{personaRole}}.
+  
+  Format the output in a clean, professional executive summary style with clear headings.`
 };
 
 async function getPromptTemplate(id: keyof typeof DEFAULT_PROMPTS): Promise<string> {
@@ -336,5 +344,32 @@ export async function searchProspects(company: { name: string, url: string }, se
       console.error("Gemini parse error:", innerError);
       return [];
     }
+  }
+}
+
+export async function generateCompanyIntelligence(company: { name: string, url: string }, persona?: PersonaContext) {
+  const template = await getPromptTemplate("generateCompanyIntelligence" as any);
+  
+  let contextInfo = "";
+  if (persona) {
+    contextInfo = `\nContext: You are ${persona.agentName || "an AI Assistant"} working as ${persona.agentRole || "a Technical Researcher"}. You are generating this report for strategic alignment.\n`;
+  }
+
+  const prompt = contextInfo + replaceVariables(template, {
+    companyName: company.name,
+    companyUrl: company.url,
+    personaRole: persona?.agentRole || "a strategic advisor"
+  });
+
+  try {
+    const response = await callGemini("gemini-3-flash-preview", prompt, {
+      tools: [{ googleSearch: {} }],
+      toolConfig: { includeServerSideToolInvocations: true }
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Intelligence report failed with grounding, retrying without...", error);
+    const retryResponse = await callGemini("gemini-3-flash-preview", prompt);
+    return retryResponse.text;
   }
 }

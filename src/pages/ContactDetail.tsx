@@ -37,7 +37,8 @@ import {
   Terminal,
   Trash2,
   Copy,
-  X
+  X,
+  LayoutDashboard
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
@@ -651,9 +652,24 @@ export function ContactDetail() {
                   <div className="h-8 w-[2px] bg-slate-100"></div>
                   <div className="flex flex-col">
                     <span className="label-mini !text-[8px] mb-0.5">Account & Role</span>
-                    <p className="font-black text-sm uppercase tracking-tight text-slate-600">
-                      {contact.company} <span className="text-slate-300 mx-1">•</span> <span className="text-indigo-600">{contact.role || 'Prospect'}</span>
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <p className="font-black text-sm uppercase tracking-tight text-slate-600">
+                        {contact.company} <span className="text-slate-300 mx-1">•</span> <span className="text-indigo-600">{contact.role || 'Prospect'}</span>
+                      </p>
+                      <div className="flex gap-1 flex-wrap mb-2">
+                        {contact.labels?.map((label: string) => (
+                          <span key={label} className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[8px] font-black uppercase text-indigo-600">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                      <Link 
+                        to={`/intelligence/${contact.company.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                        className="p-1 px-2.5 bg-indigo-50 border border-indigo-100 rounded text-[9px] font-black uppercase text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-1.5"
+                      >
+                        <LayoutDashboard className="w-2.5 h-2.5" /> Intelligence
+                      </Link>
+                    </div>
                   </div>
                 </div>
                 

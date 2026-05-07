@@ -1,6 +1,6 @@
 import React from "react";
 import { useAuth } from "../lib/auth";
-import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search, Spade, Mail, TrendingUp } from "lucide-react";
+import { LogOut, User as UserIcon, LayoutDashboard, Users, Shield, Search, Spade, Mail, TrendingUp, Zap, BookOpen } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
 export function Navbar() {
@@ -59,6 +59,14 @@ export function Navbar() {
                <Search className={`w-4 h-4 ${isActive("/find-prospects") ? "text-indigo-600" : "text-slate-400"}`} /> 
                Discovery
             </Link>
+            <Link to="/bulk-discovery" className={getNavLinkClass("/bulk-discovery")}>
+               <Zap className={`w-4 h-4 ${isActive("/bulk-discovery") ? "text-indigo-600" : "text-slate-400"}`} /> 
+               Bulk
+            </Link>
+            <Link to="/intelligence" className={getNavLinkClass("/intelligence")}>
+               <LayoutDashboard className={`w-4 h-4 ${isActive("/intelligence") ? "text-indigo-600" : "text-slate-400"}`} /> 
+               Intelligence
+            </Link>
             <Link to="/contacts" className={getNavLinkClass("/contacts")}>
                <TrendingUp className={`w-4 h-4 ${isActive("/contacts") ? "text-indigo-600" : "text-slate-400"}`} />
                Insights
@@ -66,6 +74,10 @@ export function Navbar() {
             <Link to="/unsent-drafts" className={getNavLinkClass("/unsent-drafts", "bg-indigo-50 text-indigo-700 shadow-neo-sm border border-indigo-200")}>
               <Mail className={`w-4 h-4 ${isActive("/unsent-drafts") ? "text-indigo-700" : "text-indigo-400"}`} />
               Drafts
+            </Link>
+            <Link to="/docs" className={getNavLinkClass("/docs")}>
+              <BookOpen className={`w-4 h-4 ${isActive("/docs") ? "text-indigo-600" : "text-slate-400"}`} />
+              Docs
             </Link>
             {role === "admin" && (
               <Link to="/admin" className={`px-3 py-1.5 rounded-lg text-sm font-black transition-colors flex items-center gap-2 ${isActive("/admin") ? "bg-indigo-100 text-indigo-800" : "text-indigo-600 hover:bg-indigo-50"}`}>

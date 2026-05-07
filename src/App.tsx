@@ -10,6 +10,9 @@ import { Insights } from "./pages/Insights";
 import { TechnicalRequirements } from "./pages/TechnicalRequirements";
 import { Admin } from "./pages/Admin";
 import { Profile } from "./pages/Profile";
+import { BulkDiscovery } from "./pages/BulkDiscovery";
+import { CompanyIntelligence } from "./pages/CompanyIntelligence";
+import { Documentation } from "./pages/Documentation";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ForgotPassword } from "./pages/ForgotPassword";
@@ -112,6 +115,38 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <FindProspects />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/bulk-discovery" 
+            element={
+              <ProtectedRoute>
+                <BulkDiscovery />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/intelligence" 
+            element={
+              <ProtectedRoute>
+                <CompanyIntelligence />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/intelligence/:companyId" 
+            element={
+              <ProtectedRoute>
+                <CompanyIntelligence />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/docs" 
+            element={
+              <ProtectedRoute>
+                <Documentation />
               </ProtectedRoute>
             } 
           />

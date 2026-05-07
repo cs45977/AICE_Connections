@@ -3,11 +3,29 @@ import { collection, query, where, onSnapshot, addDoc, orderBy, Timestamp } from
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/auth";
 import { handleFirestoreError, OperationType } from "../lib/firestore-errors";
-import { Plus, Search, Mail, ExternalLink, Calendar, Sparkles, Upload, Download, Linkedin, Phone } from "lucide-react";
+import { Plus, Search, Mail, ExternalLink, Calendar, Sparkles, Upload, Download, Linkedin, Phone, Info, TrendingUp } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "motion/react";
 import Papa from "papaparse";
 import { toast } from "sonner";
+
+function Target_Icon({ className }: { className?: string }) {
+  return (
+    <svg 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2.5" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className={className}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  );
+}
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -17,6 +35,8 @@ export function Dashboard() {
   const isInsightsView = location.pathname === "/contacts";
   const [recentOutreach, setRecentOutreach] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  const [selectedLabel, setSelectedLabel] = useState<string>("all");
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [personas, setPersonas] = useState<Record<string, any>>({});
@@ -126,10 +146,19 @@ export function Dashboard() {
     return () => unsub();
   }, []);
 
-  const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.company.toLowerCase().includes(search.toLowerCase())
-  );
+  const allLabels = Array.from(new Set(contacts.flatMap(c => c.labels || [])));
+  const allCompanies = Array.from(new Set(contacts.map(c => c.company).filter(Boolean)));
+
+  const filteredContacts = contacts.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) || 
+                         (c.company && c.company.toLowerCase().includes(search.toLowerCase())) ||
+                         (c.role && c.role.toLowerCase().includes(search.toLowerCase()));
+    
+    const matchesLabel = selectedLabel === "all" || (c.labels && c.labels.includes(selectedLabel));
+    const matchesCompany = selectedCompanyFilter === "all" || c.company === selectedCompanyFilter;
+    
+    return matchesSearch && matchesLabel && matchesCompany;
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
@@ -146,18 +175,45 @@ export function Dashboard() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-900 transition-colors" />
-            <input 
-              type="text" 
-              placeholder="Filter by name or account..." 
-              className="pl-10 h-10 w-72 bg-white border-2 border-slate-900 rounded-lg text-sm font-medium focus:outline-none focus:shadow-neo-sm transition-all"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div className="relative group">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-900 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search prospects..." 
+                className="pl-10 h-10 w-72 bg-white border-2 border-slate-900 rounded-lg text-sm font-medium focus:outline-none focus:shadow-neo-sm transition-all"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            
+            <select 
+              value={selectedLabel}
+              onChange={(e) => setSelectedLabel(e.target.value)}
+              className="h-10 px-3 bg-white border-2 border-slate-900 rounded-lg text-xs font-black uppercase tracking-widest focus:outline-none focus:shadow-neo-sm appearance-none cursor-pointer"
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="all">All Labels</option>
+              {allLabels.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+
+            <select 
+              value={selectedCompanyFilter}
+              onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+              className="h-10 px-3 bg-white border-2 border-slate-900 rounded-lg text-xs font-black uppercase tracking-widest focus:outline-none focus:shadow-neo-sm appearance-none cursor-pointer"
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="all">All Companies</option>
+              {allCompanies.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center justify-end gap-2">
             <input 
               type="file" 
               accept=".csv" 
@@ -244,10 +300,15 @@ export function Dashboard() {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-bold">{contact.company}</span>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] font-black uppercase text-slate-500">
                         {contact.role || 'Contact'}
                       </span>
+                      {contact.labels?.map((label: string) => (
+                        <span key={label} className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[9px] font-black uppercase text-indigo-600">
+                          {label}
+                        </span>
+                      ))}
                       {contact.discoveryPersonaId && personas[contact.discoveryPersonaId] && (
                         <span className="px-1.5 py-0.5 bg-indigo-100 border border-indigo-200 rounded text-[9px] font-black uppercase text-indigo-700 flex items-center gap-1">
                           <Sparkles className="w-2 h-2" />
@@ -282,13 +343,24 @@ export function Dashboard() {
 
         {/* Sidebar / Stats Section */}
         <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
-          <div className="neo-card bg-indigo-600 text-white flex items-center justify-between">
-            <div>
-              <p className="label-mini !text-indigo-200 mb-1">Conversion Potential</p>
+          <div className="neo-card bg-indigo-600 text-white flex items-center justify-between relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+              <TrendingUp className="w-20 h-20 -rotate-12" />
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="label-mini !text-indigo-100 !border-indigo-400/30">Conversion Potential</p>
+                <div className="group/info relative">
+                  <Info className="w-3 h-3 text-indigo-300 cursor-help" />
+                  <div className="absolute left-0 bottom-full mb-2 w-48 p-2 bg-slate-900 text-[8px] font-bold uppercase tracking-widest leading-relaxed rounded-lg opacity-0 group-hover/info:opacity-100 transition-opacity pointer-events-none shadow-xl border border-slate-800 z-50">
+                    Predictive score based on Persona alignment, data veracity, and account growth signals.
+                  </div>
+                </div>
+              </div>
               <p className="text-3xl font-black tracking-tighter">74.2%</p>
             </div>
-            <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center border border-white/20">
-              <Mail className="w-6 h-6" />
+            <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center border border-white/20 relative z-10">
+              <Target_Icon className="w-6 h-6" />
             </div>
           </div>
 

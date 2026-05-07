@@ -77,7 +77,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming());
       allow update: if isSignedIn() && (
         // Action: Update details
-        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company', 'phone', 'discoveryPersonaId']) && isValidContact(incoming())) ||
+        (incoming().diff(existing()).affectedKeys().hasAny(['name', 'email', 'role', 'linkedin', 'updatedAt', 'company', 'phone', 'discoveryPersonaId', 'labels']) && isValidContact(incoming())) ||
         // Action: AI Research Update
         (incoming().diff(existing()).affectedKeys().hasOnly(['researchSummary', 'updatedAt']) && incoming().updatedAt is string) ||
         isAdmin()
@@ -141,7 +141,47 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
     }
 
-    // --- 5. Prompts ---
+    // --- 7. Companies ---
+    match /companies/{companyId} {
+      function isValidCompany(data) {
+        return data.name is string && data.name.size() <= 200 &&
+               (!data.keys().hasAny(['url']) || data.url is string) &&
+               (!data.keys().hasAny(['latestIntelligence']) || data.latestIntelligence is string) &&
+               data.createdBy == request.auth.uid;
+      }
+      allow read: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(companyId) && isValidCompany(incoming());
+      allow update: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin()) && (
+        incoming().diff(existing()).affectedKeys().hasAny(['latestIntelligence', 'summary', 'personaId', 'updatedAt']) && isValidCompany(incoming())
+      );
+      allow delete: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+
+      // --- 7.1 Reports (Subcollection) ---
+      match /reports/{reportId} {
+        function isValidReport(data) {
+          return data.content is string && data.createdBy == request.auth.uid;
+        }
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(reportId) && isValidReport(incoming());
+        allow delete: if isAdmin();
+      }
+    }
+
+    // --- 8. Bulk Discoveries ---
+    match /bulkDiscoveries/{batchId} {
+      function isValidBatch(data) {
+        return data.createdBy == request.auth.uid &&
+               data.createdAt is string;
+      }
+      allow read: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
+      allow update: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin()) && (
+        incoming().diff(existing()).affectedKeys().hasAny(['status', 'processed', 'results'])
+      );
+      allow delete: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+    }
+
+    // --- 9. Prompts ---
     match /prompts/{promptId} {
       function isValidPrompt(data) {
         return data.name is string && data.name.size() <= 100 &&

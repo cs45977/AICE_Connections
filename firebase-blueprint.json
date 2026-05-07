@@ -24,6 +24,10 @@
         "role": { "type": "string" },
         "linkedin": { "type": "string" },
         "phone": { "type": "string" },
+        "labels": { 
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "createdBy": { "type": "string" },
         "discoveryPersonaId": { "type": "string" },
         "researchSummary": { "type": "string" },
@@ -116,6 +120,57 @@
       },
       "required": ["name", "createdAt"]
     },
+    "Company": {
+      "title": "Company",
+      "description": "Enterprise intelligence report and metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "linkedinUrl": { "type": "string" },
+        "latestIntelligence": { "type": "string" },
+        "summary": { "type": "string" },
+        "personaId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdBy", "updatedAt"]
+    },
+    "IntelligenceReport": {
+      "title": "Intelligence Report Version",
+      "description": "A specific version of a company intelligence report.",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "personaId": { "type": "string" },
+        "personaName": { "type": "string" },
+        "instructions": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content", "createdBy", "createdAt"]
+    },
+    "BulkDiscovery": {
+      "title": "Bulk Discovery Batch",
+      "description": "Tracking for multi-company discovery batches.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
+        "total": { "type": "number" },
+        "processed": { "type": "number" },
+        "results": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "personaId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "createdBy", "createdAt"]
+    },
     "GlobalSettings": {
       "title": "Global Settings",
       "description": "System-wide configuration settings",
@@ -152,6 +207,18 @@
     "/discoveries/{discoveryId}": {
       "schema": "ProspectDiscovery",
       "description": "Prospect discovery sessions."
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Enterprise intelligence report and metadata."
+    },
+    "/companies/{companyId}/reports/{reportId}": {
+      "schema": "IntelligenceReport",
+      "description": "Versioning for intelligence reports."
+    },
+    "/bulkDiscoveries/{batchId}": {
+      "schema": "BulkDiscovery",
+      "description": "Tracking for multi-company discovery batches."
     },
     "/prompts/{promptId}": {
       "schema": "Prompt",

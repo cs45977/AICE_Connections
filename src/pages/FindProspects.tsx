@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../lib/auth";
 import { db } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { generateDiscoveryQuestions, searchProspects } from "../lib/gemini";
-import { Search, Building2, Globe, Linkedin, MessageSquare, Loader2, UserPlus, ArrowRight, CheckCircle2, ExternalLink, Plus, Sparkles, History, Trash2, RefreshCw, ChevronRight, AlertTriangle } from "lucide-react";
+import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from "firebase/firestore";
+import { generateDiscoveryQuestions, searchProspects, generateCompanyIntelligence } from "../lib/gemini";
+import { Search, Building2, Globe, Linkedin, MessageSquare, Loader2, UserPlus, ArrowRight, CheckCircle2, ExternalLink, Plus, Sparkles, History, Trash2, RefreshCw, ChevronRight, AlertTriangle, Zap, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 
 interface Prospect {
@@ -24,6 +25,7 @@ interface DiscoveryRecord {
   linkedinUrl: string;
   criteria: string;
   results: Prospect[];
+  intelligence?: string;
   personaId?: string;
   createdBy: string;
   createdAt: string;
@@ -189,30 +191,59 @@ export function FindProspects() {
       const prospectResults = await searchProspects(company, userCriteria, personaContext);
       const safeResults = Array.isArray(prospectResults) ? prospectResults : [];
       setResults(safeResults);
+
+      // Generate Company Intelligence Report
+      toast.info("Generating deep intelligence report...", { duration: 3000 });
+      const intelligence = await generateCompanyIntelligence(company, personaContext);
       
+      const discoveryData = {
+        companyName: company.name,
+        companyUrl: company.url,
+        linkedinUrl: company.linkedin,
+        criteria: userCriteria,
+        results: safeResults,
+        intelligence,
+        personaId: selectedPersonaId || null,
+        updatedAt: new Date().toISOString()
+      };
+
       if (activeDiscoveryId) {
         // Update existing discovery
-        await updateDoc(doc(db, "discoveries", activeDiscoveryId), {
-          results: safeResults,
-          criteria: userCriteria,
-          personaId: selectedPersonaId || null,
-          updatedAt: new Date().toISOString()
-        });
-        toast.success("Discovery refreshed and updated.");
+        await updateDoc(doc(db, "discoveries", activeDiscoveryId), discoveryData);
+        toast.success("Discovery refreshed and intelligence updated.");
       } else {
         // Save new discovery session
         const docRef = await addDoc(collection(db, "discoveries"), {
-          companyName: company.name,
-          companyUrl: company.url,
-          linkedinUrl: company.linkedin,
-          criteria: userCriteria,
-          results: safeResults,
-          personaId: selectedPersonaId || null,
+          ...discoveryData,
           createdBy: user?.uid,
           createdAt: new Date().toISOString()
         });
         setActiveDiscoveryId(docRef.id);
       }
+
+      // Also save to global Companies collection for easy lookup
+      const companyId = company.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+      await setDoc(doc(db, "companies", companyId), {
+        id: companyId,
+        name: company.name,
+        url: company.url,
+        linkedinUrl: company.linkedin,
+        latestIntelligence: intelligence,
+        summary: intelligence.substring(0, 200) + "...",
+        personaId: selectedPersonaId || null,
+        createdBy: user?.uid,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Add to reports subcollection for versioning
+      await addDoc(collection(db, "companies", companyId, "reports"), {
+        content: intelligence,
+        personaId: selectedPersonaId || null,
+        personaName: selectedPersona?.name || "Standard Agent",
+        instructions: userCriteria,
+        createdBy: user?.uid,
+        createdAt: new Date().toISOString()
+      });
 
       setStep("results");
     } catch (err: any) {
@@ -224,6 +255,8 @@ export function FindProspects() {
       setLoading(false);
     }
   };
+
+  const [activeResultTab, setActiveResultTab] = useState<"prospects" | "intelligence">("prospects");
 
   const handleRecallDiscovery = (record: DiscoveryRecord) => {
     setCompany({
@@ -530,7 +563,21 @@ export function FindProspects() {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{company.name} Scan Results</p>
                  </div>
                </div>
-               <div className="flex gap-3">
+               <div className="flex gap-3 items-center">
+                 <div className="flex p-1 bg-white border-2 border-slate-900 rounded-lg mr-4">
+                    <button 
+                      onClick={() => setActiveResultTab("prospects")}
+                      className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${activeResultTab === "prospects" ? "bg-slate-900 text-white shadow-neo-sm" : "text-slate-500 hover:bg-slate-50"}`}
+                    >
+                      Prospects
+                    </button>
+                    <button 
+                      onClick={() => setActiveResultTab("intelligence")}
+                      className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${activeResultTab === "intelligence" ? "bg-slate-900 text-white shadow-neo-sm" : "text-slate-500 hover:bg-slate-50"}`}
+                    >
+                      Intelligence
+                    </button>
+                  </div>
                  <button 
                   onClick={handlePerformSearch}
                   disabled={loading}
@@ -557,7 +604,32 @@ export function FindProspects() {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-              {Array.isArray(results) ? (
+              {activeResultTab === "intelligence" ? (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="neo-card bg-white"
+                >
+                  <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-4">
+                    <Zap className="w-5 h-5 text-indigo-600" />
+                    <h3 className="text-xl font-black uppercase tracking-tight">Enterprise Intelligence Report</h3>
+                  </div>
+                  <div className="markdown-body">
+                    <ReactMarkdown>
+                      {activeDiscoveryId ? history.find(h => h.id === activeDiscoveryId)?.intelligence || "Generating report..." : "Intelligence report not available."}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="mt-8 pt-8 border-t-2 border-dashed border-slate-100 flex justify-between items-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Report tailored to: {personas.find(p => p.id === selectedPersonaId)?.agentRole || "Strategic Advisor"}</p>
+                    <Link 
+                      to={`/intelligence/${company.name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                      className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:underline"
+                    >
+                      View Permanent Profile <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+                </motion.div>
+              ) : Array.isArray(results) ? (
                 results.map((prospect, idx) => (
                   <motion.div 
                     key={idx}
@@ -641,7 +713,7 @@ export function FindProspects() {
                  </div>
                  <div>
                    <h3 className="text-lg font-black uppercase mb-1 tracking-tighter">Importing Prospects</h3>
-                   <p className="text-slate-400 font-bold text-xs mb-6 mb-2">Review the results above and use the "New Contact" page to add promising leads to your workspace.</p>
+                   <p className="text-slate-400 font-bold text-xs mb-4">Review the results above and use the "New Contact" page to add promising leads to your workspace.</p>
                    <button 
                      onClick={() => window.open("/contacts/new", "_blank")}
                      className="bg-white text-slate-900 px-6 py-3 rounded-lg font-black uppercase text-xs tracking-widest hover:bg-indigo-50 transition-colors flex items-center gap-2"
